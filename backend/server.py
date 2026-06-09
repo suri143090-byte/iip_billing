@@ -229,8 +229,15 @@ async def get_company(uid: str) -> dict:
 async def gen_doc_number(uid: str, dtype: str) -> str:
     prefix = {"invoice": "INV", "quotation": "QUO", "proforma": "PRO"}.get(dtype, "DOC")
     year = datetime.now(timezone.utc).year
-    count = await db.documents.count_documents({"owner_id": uid, "type": dtype})
-    return f"{prefix}/{year}/{count + 1:04d}"
+    # Monotonic per owner+type counter (never reused even if a doc is deleted)
+    res = await db.counters.find_one_and_update(
+        {"owner_id": uid, "type": dtype},
+        {"$inc": {"seq": 1}},
+        upsert=True,
+        return_document=True,
+    )
+    seq = res["seq"] if res and res.get("seq") else 1
+    return f"{prefix}/{year}/{seq:04d}"
 
 
 # ----------------------------------------------------------------------------
@@ -421,7 +428,7 @@ async def documents_create(payload: DocumentInput, user: dict = Depends(get_curr
             month_start = datetime.now(timezone.utc).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
             cnt = await db.documents.count_documents({
                 "owner_id": user["id"], "type": "invoice",
-                "updated_at": {"$gte": month_start.isoformat()},
+                "created_at": {"$gte": month_start.isoformat()},
             })
             if cnt >= 10:
                 raise HTTPException(status_code=403, detail="Free plan limit reached: 10 invoices per month. Upgrade to Pro for unlimited invoices.")
