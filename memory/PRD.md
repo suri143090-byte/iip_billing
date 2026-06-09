@@ -31,20 +31,25 @@ Professional GST billing & invoicing app for **Indian Industrial Products (IIP)*
 - ✅ Mobile bottom nav + More page
 - ✅ Tested: 27/27 backend pytest pass, frontend e2e 100%
 
-## Backlog (prioritized)
-### P0 (next)
-- Razorpay subscription checkout (Pro/Premium upgrade) — currently shows "coming soon"
-- Real email sending (Resend/SendGrid) for invoice share & payment reminders (currently mailto/wa.me)
-### P1
-- Purchase Orders, Delivery Challans, Credit Notes, Expenses modules
-- Suppliers management; Reports (advanced)
-- Stock re-adjustment on invoice edit/delete
-- Admin panel (user management, subscription/payment tracking, analytics)
-### P2
-- Inventory module, E-Way Bill, E-Invoice, Barcode scanner, Multi-user, Portals (customer/supplier/manufacturer), Data backup/restore
-- Add 5+ more invoice templates to reach 10+
+## Production Expansion (2026-06-09)
+- ✅ Purchase Orders, Delivery Challans, Credit Notes (reuse document engine; prefixes PO/DC/CN)
+- ✅ Expenses module (CRUD, categories, payment modes, summary cards)
+- ✅ Inventory Management (stock levels, valuation, stock-in/out adjustments + movement log)
+- ✅ Suppliers (parties type=supplier)
+- ✅ Admin Panel (stats/MRR, user management, plan change, payment tracking, analytics pie) — role-guarded
+- ✅ Razorpay subscriptions (Pro ₹95 / Premium ₹289, 30-day unlock) — order create + signature verify + plan upgrade. NEEDS KEYS (RAZORPAY_KEY_ID/SECRET) — graceful 400 + UI message until provided
+- ✅ Resend email invoice sending — NEEDS KEY (RESEND_API_KEY); frontend falls back to mailto until provided
+- ✅ Real downloadable PDF (jsPDF + html2canvas); UPI QR generated client-side (qrcode lib)
+- ✅ All "Coming Soon" placeholders removed; full sidebar + grouped More page
+- ✅ Invoice stock rollback on edit/delete; plan enum validation; admin role-guard fetch
+- ✅ Tested: 54/54 backend pytest pass, frontend e2e 100%, deployment health check PASS
+
+## Pending keys (user to provide for full functionality)
+- RAZORPAY_KEY_ID + RAZORPAY_KEY_SECRET (Razorpay dashboard) → enables live subscription checkout
+- RESEND_API_KEY (resend.com) → enables real email sending (else mailto fallback)
 
 ## Next Tasks
-1. Wire Razorpay for Pro/Premium subscriptions (test key available in env).
-2. Real email integration for sharing + payment reminders.
-3. Build remaining Pro modules (PO, Delivery Challan, Credit Notes, Expenses).
+1. Add Razorpay + Resend keys to backend .env to activate payments & email.
+2. (Optional) Razorpay webhook for auto-renewal/reconciliation; recurring mandates.
+3. (Optional) E-Way Bill / E-Invoice (IRN), barcode scanner, multi-user roles, customer/supplier portals, data backup/restore.
+4. Deploy via platform Deploy button; attach custom domain via platform settings.
