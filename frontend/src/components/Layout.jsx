@@ -4,7 +4,7 @@ import { useAuth } from "../context/AuthContext";
 import {
   LayoutDashboard, FileText, FileSpreadsheet, Users, Package,
   Settings as SettingsIcon, Crown, LogOut, Home, Receipt, MoreHorizontal,
-  Truck, FileMinus, Wallet, Warehouse, BarChart3, Building2,
+  Truck, FileMinus, Wallet, Warehouse, Building2, Shield, ShoppingCart,
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 
@@ -13,18 +13,14 @@ const sidebarNav = [
   { to: "/invoices", label: "Invoices", icon: FileText },
   { to: "/quotations", label: "Quotations", icon: FileSpreadsheet },
   { to: "/proforma", label: "Proforma", icon: Receipt },
+  { to: "/purchase-orders", label: "Purchase Orders", icon: ShoppingCart },
+  { to: "/delivery-challans", label: "Delivery Challans", icon: Truck },
+  { to: "/credit-notes", label: "Credit Notes", icon: FileMinus },
+  { to: "/expenses", label: "Expenses", icon: Wallet },
   { to: "/customers", label: "Customers", icon: Users },
+  { to: "/suppliers", label: "Suppliers", icon: Building2 },
   { to: "/products", label: "Products", icon: Package },
-];
-
-const sidebarSoon = [
-  { label: "Purchase Orders", icon: Truck },
-  { label: "Delivery Challan", icon: Truck },
-  { label: "Credit Notes", icon: FileMinus },
-  { label: "Expenses", icon: Wallet },
-  { label: "Inventory", icon: Warehouse },
-  { label: "Reports", icon: BarChart3 },
-  { label: "Suppliers", icon: Building2 },
+  { to: "/inventory", label: "Inventory", icon: Warehouse },
 ];
 
 const bottomNav = [
@@ -65,7 +61,7 @@ export default function Layout() {
               key={item.to}
               to={item.to}
               end={item.end}
-              data-testid={`nav-${item.label.toLowerCase()}`}
+              data-testid={`nav-${item.label.toLowerCase().replace(/\s/g, "-")}`}
               className={({ isActive }) =>
                 `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${
                   isActive
@@ -78,20 +74,21 @@ export default function Layout() {
               {item.label}
             </NavLink>
           ))}
-          <div className="pt-3 mt-3 border-t border-white/10">
-            <p className="px-3 pb-2 text-[10px] uppercase tracking-widest text-slate-500 font-semibold">
-              Coming Soon
-            </p>
-            {sidebarSoon.map((item) => (
-              <div
-                key={item.label}
-                className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-slate-500 cursor-not-allowed"
+          {user?.role === "admin" && (
+            <div className="pt-3 mt-3 border-t border-white/10">
+              <NavLink
+                to="/admin"
+                data-testid="nav-admin"
+                className={({ isActive }) =>
+                  `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition ${
+                    isActive ? "bg-iip-blue text-white" : "text-iip-orange hover:bg-white/10"
+                  }`
+                }
               >
-                <item.icon className="h-[18px] w-[18px]" />
-                {item.label}
-              </div>
-            ))}
-          </div>
+                <Shield className="h-[18px] w-[18px]" /> Admin Panel
+              </NavLink>
+            </div>
+          )}
         </nav>
         <div className="px-3 py-4 border-t border-white/10 space-y-1">
           <NavLink

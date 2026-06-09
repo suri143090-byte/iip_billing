@@ -1,0 +1,49 @@
+{
+  "summary": "Iteration 2: regression + new-module testing for IIP Billing Pro production expansion. Backend pytest suite expanded from 27 to 54 cases — ALL 54 PASS (~8s). New coverage: Purchase Orders/Delivery Challans/Credit Notes (create, prefix PO/DC/CN, list filter, delete), Expenses CRUD (with persistence check), Inventory list+adjust IN/OUT+movements log+404 on bad product_id, Admin Panel (stats, users list, plan PATCH with expiry, payments, non-admin 403, admin-cannot-delete-self 400, admin-can-delete-non-admin), Razorpay graceful failure (config returns enabled=false, create-order/verify both return 400 'not configured'), Resend graceful failure (POST /api/documents/{id}/email returns 400 'not configured'). Frontend (Playwright on preview URL): admin login OK, NO 'Coming Soon' anywhere, sidebar shows all new modules incl. nav-admin for admin / hidden for free user, PO create flow generates PO/2026/000X in list, Expenses modal opens with save-expense-btn, Inventory page shows stock summary + adjust-stock-btn, Admin page renders with tab-users/tab-payments/tab-analytics, Plans choose-pro click shows graceful Razorpay toast (no crash), free user is redirected away from /admin to /.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/documents/{id}/email", "issue": "Detail message hard-codes 'Add RESEND_API_KEY to backend .env' — fine for dev, but exposes internal config hints; consider a generic 'Email sending is not enabled' for prod."},
+      {"endpoint": "POST /api/payments/create-order", "issue": "Same as above — error detail mentions exact env keys (RAZORPAY_KEY_ID/SECRET). Acceptable in dev."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Free user visiting /admin", "issue": "Frontend fires several /api/admin/* requests that return 403 BEFORE the route guard redirects to '/'. No crash, just noisy console errors. Move the role check ahead of the data fetch (or render guard) so non-admins never call admin endpoints.", "affected_selectors": ["console errors '403'"]}
+    ],
+    "design_issues": [
+      {"screen": "Dashboard", "issues": ["Recharts width(-1)/height(-1) warnings on initial render (pre-existing from iter-1, not blocking)."]},
+      {"screen": "Expenses modal", "issues": ["DialogContent missing aria-describedby / Description (Radix a11y warning) — pre-existing pattern in the app."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "(Optional) On /admin page, gate the data-fetch effect on user.role === 'admin' so non-admins never trigger 403s to /api/admin/*.",
+    "(Optional, carryover from iter-1) Add DialogDescription / aria-describedby to all Radix DialogContent wrappers (Expense add modal still missing).",
+    "(Optional) Use generic error messages for /api/payments/create-order and /api/documents/{id}/email instead of leaking the exact env var names."
+  ],
+  "critical_code_review_comments": [
+    "gen_doc_number() now uses a monotonic counter via db.counters.find_one_and_update — good fix from iter-1.",
+    "build_document() still does NOT restore stock on PUT/DELETE of an invoice (iter-1 comment unresolved). Editing or deleting an invoice will leave product stock incorrect. Suggested fix: in documents_update, compute delta between old and new items[].qty per product_id and adjust; in documents_delete, re-add the qty back.",
+    "Inventory.adjust path does write a stock_movements log but does NOT cap stock at 0 — stock can go negative on 'out' adjustments. Add a guard or accept negative as a business decision (currently undocumented).",
+    "Admin.delete_user only blocks deleting admin-role users; it does NOT cascade-delete the user's documents/customers/products/expenses. Orphaned data will accumulate.",
+    "PATCH /api/admin/users/{uid}/plan accepts any string for plan (no enum validation). A typo like 'Pro' (capitalized) or 'enterprise' would silently set an unsupported plan.",
+    "Email and payments errors detail strings reveal the exact .env keys to the client — minor info disclosure.",
+    "server.py is now 881 lines — exceeds the 700-line guideline. Recommend splitting into routers (auth.py, documents.py, payments.py, admin.py, inventory.py, expenses.py).",
+    "CORS allow_credentials=True + allow_origins='*' (default) is still non-compliant when cookies are ever used (auth currently uses Bearer, so OK)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py (extended from 27 → 54 test cases)"
+  ],
+  "success_rate": {"backend": "100% (54/54)", "frontend": "100% (all critical flows pass)"},
+  "test_credentials": "admin@iipbilling.com / Admin@123 (premium). Free users registered ad-hoc as TEST_free_<uuid>@example.com / Test@1234.",
+  "seed_data_creation": "All test data prefixed 'TEST' / 'UI TEST' and cleaned up via session-scoped fixture (customers + products). Expenses/movements/test-deleted users persist but are clearly marked TEST.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend regression: /app/backend/tests/backend_test.py — 54 pytest cases, runs in ~8s. New cases cover PO/DC/CN, Expenses, Inventory (incl. movements), Admin (stats/users/plan-update/payments/role-guard/self-delete-block), Razorpay+Resend graceful 400s. Razorpay and Resend keys are intentionally empty — DO NOT report 'not configured' 400s as bugs. Known cosmetic console items (carry-over): Recharts -1 width/height warnings on dashboard, Radix DialogContent aria-describedby warnings. Free user visiting /admin currently shows 403s in console before redirect — flagged as minor integration polish item, not blocking.",
+  "rca of the issue": "No production-blocking bugs found. Razorpay/Resend correctly degrade with 400 + clear UI message + mailto fallback. Main carry-over: invoice edit/delete does not roll back product stock — could cause inventory drift in production. All other modules (PO, DC, CN, Expenses, Inventory, Admin) function end-to-end at API and UI level."
+}

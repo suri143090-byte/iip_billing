@@ -14,6 +14,9 @@ from typing import List, Optional
 import uuid
 import jwt
 import bcrypt
+import asyncio
+import razorpay
+import resend
 from datetime import datetime, timezone, timedelta
 
 # ----------------------------------------------------------------------------
@@ -89,7 +92,23 @@ async def get_current_user(request: Request) -> dict:
     user = await db.users.find_one({"id": payload["sub"]})
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
+    # Auto-downgrade expired paid plans
+    exp = user.get("plan_expires_at")
+    if exp and user.get("plan") not in (None, "free") and user.get("role") != "admin":
+        try:
+            if datetime.fromisoformat(exp) < datetime.now(timezone.utc):
+                await db.users.update_one({"id": user["id"]}, {"$set": {"plan": "free", "plan_expires_at": None}})
+                user["plan"] = "free"
+                user["plan_expires_at"] = None
+        except Exception:
+            pass
     return clean(user)
+
+
+def require_admin(user: dict = Depends(get_current_user)) -> dict:
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return user
 
 
 # ----------------------------------------------------------------------------
@@ -227,7 +246,10 @@ async def get_company(uid: str) -> dict:
 
 
 async def gen_doc_number(uid: str, dtype: str) -> str:
-    prefix = {"invoice": "INV", "quotation": "QUO", "proforma": "PRO"}.get(dtype, "DOC")
+    prefix = {
+        "invoice": "INV", "quotation": "QUO", "proforma": "PRO",
+        "purchase_order": "PO", "delivery_challan": "DC", "credit_note": "CN",
+    }.get(dtype, "DOC")
     year = datetime.now(timezone.utc).year
     # Monotonic per owner+type counter (never reused even if a doc is deleted)
     res = await db.counters.find_one_and_update(
@@ -534,6 +556,275 @@ async def dashboard_stats(user: dict = Depends(get_current_user)):
         "customer_count": await db.customers.count_documents({"owner_id": uid}),
         "product_count": len(products),
     }
+
+
+# ----------------------------------------------------------------------------
+# Razorpay payments
+# ----------------------------------------------------------------------------
+PLAN_PRICES = {"pro": 95, "premium": 289}  # INR per month
+RAZORPAY_KEY_ID = os.environ.get("RAZORPAY_KEY_ID", "")
+RAZORPAY_KEY_SECRET = os.environ.get("RAZORPAY_KEY_SECRET", "")
+
+
+def get_razorpay_client():
+    if not RAZORPAY_KEY_ID or not RAZORPAY_KEY_SECRET:
+        return None
+    return razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
+
+
+class CreateOrderInput(BaseModel):
+    plan: str  # pro | premium
+
+
+class VerifyPaymentInput(BaseModel):
+    plan: str
+    razorpay_order_id: str
+    razorpay_payment_id: str
+    razorpay_signature: str
+
+
+@api_router.get("/payments/config")
+async def payments_config():
+    return {"enabled": bool(RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET), "key_id": RAZORPAY_KEY_ID}
+
+
+@api_router.post("/payments/create-order")
+async def payments_create_order(payload: CreateOrderInput, user: dict = Depends(get_current_user)):
+    if payload.plan not in PLAN_PRICES:
+        raise HTTPException(status_code=400, detail="Invalid plan")
+    rc = get_razorpay_client()
+    if rc is None:
+        raise HTTPException(status_code=400, detail="Payment gateway not configured. Add RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET to backend .env.")
+    amount = PLAN_PRICES[payload.plan] * 100  # paise
+    order = rc.order.create({
+        "amount": amount, "currency": "INR", "payment_capture": 1,
+        "receipt": f"plan_{payload.plan}_{user['id'][:8]}",
+        "notes": {"user_id": user["id"], "plan": payload.plan},
+    })
+    return {"order_id": order["id"], "amount": amount, "currency": "INR", "key_id": RAZORPAY_KEY_ID, "plan": payload.plan}
+
+
+@api_router.post("/payments/verify")
+async def payments_verify(payload: VerifyPaymentInput, user: dict = Depends(get_current_user)):
+    rc = get_razorpay_client()
+    if rc is None:
+        raise HTTPException(status_code=400, detail="Payment gateway not configured.")
+    try:
+        rc.utility.verify_payment_signature({
+            "razorpay_order_id": payload.razorpay_order_id,
+            "razorpay_payment_id": payload.razorpay_payment_id,
+            "razorpay_signature": payload.razorpay_signature,
+        })
+    except Exception:
+        raise HTTPException(status_code=400, detail="Payment verification failed")
+    expires = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
+    await db.users.update_one({"id": user["id"]}, {"$set": {"plan": payload.plan, "plan_expires_at": expires}})
+    await db.payments.insert_one({
+        "id": new_id(), "user_id": user["id"], "user_email": user.get("email"),
+        "plan": payload.plan, "amount": PLAN_PRICES.get(payload.plan, 0),
+        "order_id": payload.razorpay_order_id, "payment_id": payload.razorpay_payment_id,
+        "status": "success", "created_at": now_iso(),
+    })
+    updated = await db.users.find_one({"id": user["id"]})
+    return {"message": "Plan upgraded", "user": clean(updated), "plan_expires_at": expires}
+
+
+# ----------------------------------------------------------------------------
+# Email invoice (Resend)
+# ----------------------------------------------------------------------------
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
+SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "onboarding@resend.dev")
+
+
+class EmailDocInput(BaseModel):
+    to: Optional[str] = None
+    message: Optional[str] = ""
+
+
+@api_router.post("/documents/{did}/email")
+async def email_document(did: str, payload: EmailDocInput, user: dict = Depends(get_current_user)):
+    if not RESEND_API_KEY:
+        raise HTTPException(status_code=400, detail="Email not configured. Add RESEND_API_KEY to backend .env.")
+    doc = await db.documents.find_one({"id": did, "owner_id": user["id"]}, {"_id": 0, "owner_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    company = await get_company(user["id"])
+    to = payload.to or (doc.get("customer") or {}).get("email")
+    if not to:
+        raise HTTPException(status_code=400, detail="No recipient email. Add customer email or provide one.")
+    title = {"invoice": "Invoice", "quotation": "Quotation", "proforma": "Proforma Invoice",
+             "purchase_order": "Purchase Order", "delivery_challan": "Delivery Challan",
+             "credit_note": "Credit Note"}.get(doc["type"], "Document")
+    rows = "".join(
+        f"<tr><td style='padding:6px;border-bottom:1px solid #eee'>{it['name']}</td>"
+        f"<td style='padding:6px;border-bottom:1px solid #eee;text-align:right'>{it['qty']}</td>"
+        f"<td style='padding:6px;border-bottom:1px solid #eee;text-align:right'>₹{it['rate']}</td>"
+        f"<td style='padding:6px;border-bottom:1px solid #eee;text-align:right'>₹{it['amount']}</td></tr>"
+        for it in doc["items"]
+    )
+    html = f"""
+    <div style="font-family:Arial,sans-serif;max-width:600px;margin:auto;border:1px solid #eee;border-radius:8px;overflow:hidden">
+      <div style="background:#1D4ED8;color:#fff;padding:20px">
+        <h2 style="margin:0">{company['name']}</h2>
+        <p style="margin:4px 0 0;opacity:.9">{title}: {doc['number']}</p>
+      </div>
+      <div style="padding:20px">
+        <p>Dear {(doc.get('customer') or {}).get('name','Customer')},</p>
+        <p>{payload.message or f'Please find your {title.lower()} details below.'}</p>
+        <table style="width:100%;border-collapse:collapse;margin:16px 0;font-size:14px">
+          <tr style="background:#f8fafc"><th style="padding:6px;text-align:left">Item</th><th style="padding:6px;text-align:right">Qty</th><th style="padding:6px;text-align:right">Rate</th><th style="padding:6px;text-align:right">Amount</th></tr>
+          {rows}
+        </table>
+        <p style="text-align:right;font-size:18px"><strong>Total: ₹{doc['total']}</strong></p>
+        <p style="color:#666;font-size:13px">Thank you for your business!<br/>{company.get('phone','')} · {company.get('email','')}</p>
+      </div>
+    </div>
+    """
+    params = {"from": SENDER_EMAIL, "to": [to], "subject": f"{company['name']} - {title} {doc['number']}", "html": html}
+    resend.api_key = RESEND_API_KEY
+    try:
+        result = await asyncio.to_thread(resend.Emails.send, params)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to send email: {str(e)}")
+    return {"message": f"Email sent to {to}", "id": result.get("id") if isinstance(result, dict) else None}
+
+
+# ----------------------------------------------------------------------------
+# Expenses
+# ----------------------------------------------------------------------------
+class Expense(BaseModel):
+    id: str = Field(default_factory=new_id)
+    date: Optional[str] = None
+    category: str = "General"
+    vendor: Optional[str] = ""
+    amount: float = 0.0
+    gst_amount: float = 0.0
+    payment_mode: Optional[str] = "Cash"
+    notes: Optional[str] = ""
+
+
+@api_router.get("/expenses")
+async def expenses_list(user: dict = Depends(get_current_user)):
+    return await db.expenses.find({"owner_id": user["id"]}, {"_id": 0, "owner_id": 0}).sort("date", -1).to_list(2000)
+
+
+@api_router.post("/expenses")
+async def expenses_create(payload: Expense, user: dict = Depends(get_current_user)):
+    data = payload.model_dump()
+    data["owner_id"] = user["id"]
+    data["date"] = data["date"] or now_iso()[:10]
+    data["created_at"] = now_iso()
+    await db.expenses.insert_one(dict(data))
+    data.pop("owner_id", None)
+    return data
+
+
+@api_router.put("/expenses/{eid}")
+async def expenses_update(eid: str, payload: Expense, user: dict = Depends(get_current_user)):
+    data = payload.model_dump()
+    data["id"] = eid
+    await db.expenses.update_one({"id": eid, "owner_id": user["id"]}, {"$set": data})
+    return data
+
+
+@api_router.delete("/expenses/{eid}")
+async def expenses_delete(eid: str, user: dict = Depends(get_current_user)):
+    await db.expenses.delete_one({"id": eid, "owner_id": user["id"]})
+    return {"message": "deleted"}
+
+
+# ----------------------------------------------------------------------------
+# Inventory
+# ----------------------------------------------------------------------------
+class StockAdjust(BaseModel):
+    product_id: str
+    quantity: float
+    type: str = "in"  # in | out
+    reason: Optional[str] = ""
+
+
+@api_router.get("/inventory")
+async def inventory_list(user: dict = Depends(get_current_user)):
+    products = await db.products.find({"owner_id": user["id"]}, {"_id": 0, "owner_id": 0}).sort("name", 1).to_list(2000)
+    total_value = round(sum((p.get("stock", 0) or 0) * (p.get("price", 0) or 0) for p in products), 2)
+    low = [p for p in products if (p.get("stock", 0) or 0) <= (p.get("low_stock_threshold", 0) or 0)]
+    return {"products": products, "total_value": total_value, "low_stock_count": len(low), "product_count": len(products)}
+
+
+@api_router.post("/inventory/adjust")
+async def inventory_adjust(payload: StockAdjust, user: dict = Depends(get_current_user)):
+    product = await db.products.find_one({"id": payload.product_id, "owner_id": user["id"]})
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    delta = payload.quantity if payload.type == "in" else -payload.quantity
+    new_stock = (product.get("stock", 0) or 0) + delta
+    await db.products.update_one({"id": payload.product_id, "owner_id": user["id"]}, {"$set": {"stock": new_stock}})
+    await db.stock_movements.insert_one({
+        "id": new_id(), "owner_id": user["id"], "product_id": payload.product_id,
+        "product_name": product.get("name"), "type": payload.type, "quantity": payload.quantity,
+        "reason": payload.reason, "balance_after": new_stock, "created_at": now_iso(),
+    })
+    return {"message": "Stock updated", "stock": new_stock}
+
+
+@api_router.get("/inventory/movements")
+async def inventory_movements(user: dict = Depends(get_current_user)):
+    return await db.stock_movements.find({"owner_id": user["id"]}, {"_id": 0, "owner_id": 0}).sort("created_at", -1).to_list(500)
+
+
+# ----------------------------------------------------------------------------
+# Admin Panel
+# ----------------------------------------------------------------------------
+@api_router.get("/admin/stats")
+async def admin_stats(admin: dict = Depends(require_admin)):
+    users = await db.users.find({}, {"_id": 0, "password_hash": 0}).to_list(5000)
+    payments = await db.payments.find({}, {"_id": 0}).sort("created_at", -1).to_list(2000)
+    plan_dist = {"free": 0, "pro": 0, "premium": 0}
+    for u in users:
+        plan_dist[u.get("plan", "free")] = plan_dist.get(u.get("plan", "free"), 0) + 1
+    total_revenue = round(sum(p.get("amount", 0) for p in payments), 2)
+    total_invoices = await db.documents.count_documents({"type": "invoice"})
+    return {
+        "total_users": len(users),
+        "plan_distribution": plan_dist,
+        "total_revenue": total_revenue,
+        "total_payments": len(payments),
+        "total_invoices": total_invoices,
+        "recent_payments": payments[:10],
+        "mrr": round(plan_dist.get("pro", 0) * 95 + plan_dist.get("premium", 0) * 289, 2),
+    }
+
+
+@api_router.get("/admin/users")
+async def admin_users(admin: dict = Depends(require_admin)):
+    return await db.users.find({}, {"_id": 0, "password_hash": 0}).sort("created_at", -1).to_list(5000)
+
+
+class AdminPlanUpdate(BaseModel):
+    plan: str
+
+
+@api_router.patch("/admin/users/{uid}/plan")
+async def admin_update_plan(uid: str, payload: AdminPlanUpdate, admin: dict = Depends(require_admin)):
+    expires = None
+    if payload.plan in PLAN_PRICES:
+        expires = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
+    await db.users.update_one({"id": uid}, {"$set": {"plan": payload.plan, "plan_expires_at": expires}})
+    return {"message": "Plan updated"}
+
+
+@api_router.delete("/admin/users/{uid}")
+async def admin_delete_user(uid: str, admin: dict = Depends(require_admin)):
+    target = await db.users.find_one({"id": uid})
+    if target and target.get("role") == "admin":
+        raise HTTPException(status_code=400, detail="Cannot delete an admin user")
+    await db.users.delete_one({"id": uid})
+    return {"message": "User deleted"}
+
+
+@api_router.get("/admin/payments")
+async def admin_payments(admin: dict = Depends(require_admin)):
+    return await db.payments.find({}, {"_id": 0}).sort("created_at", -1).to_list(2000)
 
 
 # ----------------------------------------------------------------------------

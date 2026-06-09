@@ -1,4 +1,5 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
+import QRCode from "qrcode";
 import { fmtCurrency, fmtDate } from "../../lib/format";
 
 // Convert number to Indian words (for amount in words)
@@ -26,7 +27,10 @@ const THEMES = {
   blue: { primary: "#1D4ED8", headerBg: "#EFF6FF", headerText: "#1E3A8A", tableHead: "#1D4ED8", tableHeadText: "#FFFFFF", border: "#1D4ED8", accent: "#1D4ED8" },
 };
 
-const DOC_TITLE = { invoice: "TAX INVOICE", quotation: "QUOTATION", proforma: "PROFORMA INVOICE" };
+const DOC_TITLE = {
+  invoice: "TAX INVOICE", quotation: "QUOTATION", proforma: "PROFORMA INVOICE",
+  purchase_order: "PURCHASE ORDER", delivery_challan: "DELIVERY CHALLAN", credit_note: "CREDIT NOTE",
+};
 
 export default function InvoiceDocument({ doc, company, template = "classic" }) {
   const t = THEMES[template] || THEMES.classic;
@@ -37,9 +41,14 @@ export default function InvoiceDocument({ doc, company, template = "classic" }) 
   const upiString = company.upi_id
     ? `upi://pay?pa=${encodeURIComponent(company.upi_id)}&pn=${encodeURIComponent(company.name)}&am=${doc.total}&cu=INR`
     : "";
-  const qrUrl = upiString
-    ? `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(upiString)}`
-    : "";
+  const [qrUrl, setQrUrl] = useState("");
+  useEffect(() => {
+    if (upiString) {
+      QRCode.toDataURL(upiString, { width: 120, margin: 1 }).then(setQrUrl).catch(() => setQrUrl(""));
+    } else {
+      setQrUrl("");
+    }
+  }, [upiString]);
 
   return (
     <div id="printable-invoice" className="bg-white text-[#0F172A] mx-auto" style={{ width: "210mm", maxWidth: "100%", fontFamily: "'IBM Plex Sans', sans-serif", fontSize: "12px" }}>
@@ -151,7 +160,7 @@ export default function InvoiceDocument({ doc, company, template = "classic" }) 
           {qrUrl && (
             <div>
               <p style={{ margin: "0 0 4px", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, color: "#64748B", fontWeight: 700 }}>Scan to Pay</p>
-              <img src={qrUrl} alt="UPI QR" style={{ height: 100, width: 100 }} crossOrigin="anonymous" />
+              <img src={qrUrl} alt="UPI QR" style={{ height: 100, width: 100 }} />
             </div>
           )}
         </div>

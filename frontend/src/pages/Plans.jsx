@@ -1,8 +1,20 @@
 import React from "react";
 import { useAuth } from "../context/AuthContext";
+import api, { formatApiErrorDetail } from "../lib/api";
 import { Check, Crown, Zap, Gift } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { toast } from "sonner";
+
+function loadRazorpayScript() {
+  return new Promise((resolve) => {
+    if (window.Razorpay) return resolve(true);
+    const script = document.createElement("script");
+    script.src = "https://checkout.razorpay.com/v1/checkout.js";
+    script.onload = () => resolve(true);
+    script.onerror = () => resolve(false);
+    document.body.appendChild(script);
+  });
+}
 
 const PLANS = [
   {
@@ -23,11 +35,49 @@ const PLANS = [
 ];
 
 export default function Plans() {
-  const { user } = useAuth();
+  const { user, setUser } = useAuth();
 
-  const choose = (plan) => {
+  const choose = async (plan) => {
     if (plan.id === "free") return toast.info("You're on the Free plan.");
-    toast.info("Razorpay checkout coming soon — payment integration will be wired up next.");
+    if (user?.plan === plan.id) return;
+    try {
+      const cfg = await api.get("/payments/config");
+      if (!cfg.data.enabled) {
+        toast.error("Payment gateway not configured. Add Razorpay keys (RAZORPAY_KEY_ID & RAZORPAY_KEY_SECRET) in backend .env to enable subscriptions.");
+        return;
+      }
+      const ok = await loadRazorpayScript();
+      if (!ok) return toast.error("Failed to load Razorpay. Check your connection.");
+
+      const { data: order } = await api.post("/payments/create-order", { plan: plan.id });
+      const rzp = new window.Razorpay({
+        key: order.key_id,
+        amount: order.amount,
+        currency: order.currency,
+        order_id: order.order_id,
+        name: "IIP Billing Pro",
+        description: `${plan.name} Plan Subscription`,
+        prefill: { name: user?.name, email: user?.email },
+        theme: { color: "#1D4ED8" },
+        handler: async (response) => {
+          try {
+            const { data } = await api.post("/payments/verify", {
+              plan: plan.id,
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_signature: response.razorpay_signature,
+            });
+            setUser(data.user);
+            toast.success(`Upgraded to ${plan.name}! 🎉`);
+          } catch (e) {
+            toast.error(formatApiErrorDetail(e.response?.data?.detail));
+          }
+        },
+      });
+      rzp.open();
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail));
+    }
   };
 
   return (

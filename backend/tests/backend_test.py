@@ -343,6 +343,253 @@ class TestOwnerScoping:
         listing = free_client.get(f"{API}/customers").json()
         assert all(x["id"] != c["id"] for x in listing)
 
+# ---------------- New document types: PO / DC / CN ----------------
+class TestNewDocumentTypes:
+    def test_create_purchase_order(self, admin_client):
+        r = admin_client.post(f"{API}/documents", json={
+            "type": "purchase_order",
+            "items": [{"name": "Raw Mat", "qty": 5, "rate": 200, "gst_rate": 18}],
+        })
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert d["number"].startswith("PO/")
+        assert d["type"] == "purchase_order"
+        TestNewDocumentTypes.po_id = d["id"]
+
+    def test_create_delivery_challan(self, admin_client):
+        r = admin_client.post(f"{API}/documents", json={
+            "type": "delivery_challan",
+            "items": [{"name": "Item", "qty": 1, "rate": 100, "gst_rate": 0}],
+        })
+        assert r.status_code == 200, r.text
+        assert r.json()["number"].startswith("DC/")
+        TestNewDocumentTypes.dc_id = r.json()["id"]
+
+    def test_create_credit_note(self, admin_client):
+        r = admin_client.post(f"{API}/documents", json={
+            "type": "credit_note",
+            "items": [{"name": "Return", "qty": 1, "rate": 50, "gst_rate": 18}],
+        })
+        assert r.status_code == 200, r.text
+        assert r.json()["number"].startswith("CN/")
+        TestNewDocumentTypes.cn_id = r.json()["id"]
+
+    def test_list_purchase_orders_filter(self, admin_client):
+        r = admin_client.get(f"{API}/documents?type=purchase_order")
+        assert r.status_code == 200
+        assert all(d["type"] == "purchase_order" for d in r.json())
+        assert any(d["id"] == TestNewDocumentTypes.po_id for d in r.json())
+
+    def test_delete_purchase_order(self, admin_client):
+        r = admin_client.delete(f"{API}/documents/{TestNewDocumentTypes.po_id}")
+        assert r.status_code == 200
+        g = admin_client.get(f"{API}/documents/{TestNewDocumentTypes.po_id}")
+        assert g.status_code == 404
+
+
+# ---------------- Expenses ----------------
+class TestExpenses:
+    eid = None
+
+    def test_create_expense(self, admin_client):
+        r = admin_client.post(f"{API}/expenses", json={
+            "category": "TEST Travel", "vendor": "TEST Vendor",
+            "amount": 500.0, "gst_amount": 90.0, "payment_mode": "Cash",
+            "notes": "TEST expense",
+        })
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert d["amount"] == 500.0
+        assert d["category"] == "TEST Travel"
+        assert "id" in d
+        TestExpenses.eid = d["id"]
+
+    def test_list_expenses(self, admin_client):
+        r = admin_client.get(f"{API}/expenses")
+        assert r.status_code == 200
+        assert any(e["id"] == TestExpenses.eid for e in r.json())
+
+    def test_update_expense(self, admin_client):
+        r = admin_client.put(f"{API}/expenses/{TestExpenses.eid}", json={
+            "id": TestExpenses.eid, "category": "TEST Travel", "vendor": "TEST V2",
+            "amount": 750.0, "gst_amount": 135.0, "payment_mode": "UPI",
+        })
+        assert r.status_code == 200
+        listing = admin_client.get(f"{API}/expenses").json()
+        found = [e for e in listing if e["id"] == TestExpenses.eid][0]
+        assert found["amount"] == 750.0
+        assert found["payment_mode"] == "UPI"
+
+    def test_delete_expense(self, admin_client):
+        r = admin_client.delete(f"{API}/expenses/{TestExpenses.eid}")
+        assert r.status_code == 200
+        listing = admin_client.get(f"{API}/expenses").json()
+        assert all(e["id"] != TestExpenses.eid for e in listing)
+
+
+# ---------------- Inventory ----------------
+class TestInventory:
+    pid = None
+
+    def test_create_product_for_inventory(self, admin_client):
+        r = admin_client.post(f"{API}/products", json={
+            "name": "TEST Inventory Item", "hsn": "1234", "unit": "Nos",
+            "price": 200.0, "gst_rate": 18.0, "stock": 20, "low_stock_threshold": 5,
+        })
+        assert r.status_code == 200
+        TestInventory.pid = r.json()["id"]
+
+    def test_inventory_list(self, admin_client):
+        r = admin_client.get(f"{API}/inventory")
+        assert r.status_code == 200, r.text
+        d = r.json()
+        for k in ["products", "total_value", "low_stock_count", "product_count"]:
+            assert k in d
+        assert isinstance(d["products"], list)
+        assert d["product_count"] >= 1
+        assert d["total_value"] > 0
+
+    def test_inventory_adjust_in(self, admin_client):
+        r = admin_client.post(f"{API}/inventory/adjust", json={
+            "product_id": TestInventory.pid, "quantity": 10, "type": "in", "reason": "TEST restock",
+        })
+        assert r.status_code == 200, r.text
+        # verify product stock increased
+        prods = admin_client.get(f"{API}/products").json()
+        p = [x for x in prods if x["id"] == TestInventory.pid][0]
+        assert p["stock"] == 30
+
+    def test_inventory_adjust_out(self, admin_client):
+        r = admin_client.post(f"{API}/inventory/adjust", json={
+            "product_id": TestInventory.pid, "quantity": 5, "type": "out", "reason": "TEST consumed",
+        })
+        assert r.status_code == 200
+        prods = admin_client.get(f"{API}/products").json()
+        p = [x for x in prods if x["id"] == TestInventory.pid][0]
+        assert p["stock"] == 25
+
+    def test_inventory_movements_logged(self, admin_client):
+        r = admin_client.get(f"{API}/inventory/movements")
+        assert r.status_code == 200
+        movs = r.json()
+        mine = [m for m in movs if m.get("product_id") == TestInventory.pid]
+        assert len(mine) >= 2  # one in, one out
+        assert any(m["type"] == "in" for m in mine)
+        assert any(m["type"] == "out" for m in mine)
+
+    def test_inventory_adjust_invalid_product(self, admin_client):
+        r = admin_client.post(f"{API}/inventory/adjust", json={
+            "product_id": "nonexistent-id", "quantity": 1, "type": "in",
+        })
+        assert r.status_code == 404
+
+
+# ---------------- Admin Panel ----------------
+class TestAdminPanel:
+    target_uid = None
+
+    def test_admin_stats(self, admin_client):
+        r = admin_client.get(f"{API}/admin/stats")
+        assert r.status_code == 200, r.text
+        d = r.json()
+        for k in ["total_users", "plan_distribution", "total_revenue", "total_payments",
+                  "total_invoices", "recent_payments", "mrr"]:
+            assert k in d
+        assert d["total_users"] >= 1
+        assert "free" in d["plan_distribution"]
+
+    def test_admin_users_list(self, admin_client, free_user):
+        r = admin_client.get(f"{API}/admin/users")
+        assert r.status_code == 200
+        emails = [u["email"] for u in r.json()]
+        assert ADMIN_EMAIL in emails
+        assert free_user["email"].lower() in emails
+        # ensure no password_hash leaked
+        for u in r.json():
+            assert "password_hash" not in u
+            assert "_id" not in u
+        # capture a non-admin id
+        non_admins = [u for u in r.json() if u.get("role") != "admin"]
+        assert non_admins
+        TestAdminPanel.target_uid = non_admins[0]["id"]
+
+    def test_admin_update_plan(self, admin_client):
+        r = admin_client.patch(f"{API}/admin/users/{TestAdminPanel.target_uid}/plan",
+                               json={"plan": "pro"})
+        assert r.status_code == 200
+        users = admin_client.get(f"{API}/admin/users").json()
+        u = [x for x in users if x["id"] == TestAdminPanel.target_uid][0]
+        assert u["plan"] == "pro"
+        assert u.get("plan_expires_at") is not None
+
+    def test_admin_payments(self, admin_client):
+        r = admin_client.get(f"{API}/admin/payments")
+        assert r.status_code == 200
+        assert isinstance(r.json(), list)
+
+    def test_non_admin_blocked(self, free_client):
+        r = free_client.get(f"{API}/admin/stats")
+        assert r.status_code == 403
+        r = free_client.get(f"{API}/admin/users")
+        assert r.status_code == 403
+
+    def test_admin_cannot_delete_self(self, admin_client):
+        me = admin_client.get(f"{API}/auth/me").json()
+        r = admin_client.delete(f"{API}/admin/users/{me['id']}")
+        assert r.status_code == 400
+        assert "admin" in r.text.lower()
+
+    def test_admin_can_delete_non_admin(self, admin_client):
+        # create a throwaway user
+        email = f"TEST_del_{uuid.uuid4().hex[:6]}@example.com"
+        reg = requests.post(f"{API}/auth/register", json={
+            "name": "TEST Delete", "email": email, "password": "Test@1234",
+        }, timeout=10).json()
+        uid = reg["user"]["id"]
+        r = admin_client.delete(f"{API}/admin/users/{uid}")
+        assert r.status_code == 200
+        users = admin_client.get(f"{API}/admin/users").json()
+        assert all(u["id"] != uid for u in users)
+
+
+# ---------------- Payments graceful failure (Razorpay not configured) ----------------
+class TestPaymentsGraceful:
+    def test_payments_config_disabled(self, admin_client):
+        r = admin_client.get(f"{API}/payments/config")
+        assert r.status_code == 200
+        d = r.json()
+        assert d["enabled"] is False
+        assert d.get("key_id", "") == ""
+
+    def test_create_order_returns_400_when_unconfigured(self, admin_client):
+        r = admin_client.post(f"{API}/payments/create-order", json={"plan": "pro"})
+        assert r.status_code == 400
+        assert "not configured" in r.text.lower() or "razorpay" in r.text.lower()
+
+    def test_create_order_invalid_plan(self, admin_client):
+        r = admin_client.post(f"{API}/payments/create-order", json={"plan": "bogus"})
+        assert r.status_code == 400
+
+    def test_verify_payment_returns_400_when_unconfigured(self, admin_client):
+        r = admin_client.post(f"{API}/payments/verify", json={
+            "plan": "pro", "razorpay_order_id": "x",
+            "razorpay_payment_id": "y", "razorpay_signature": "z",
+        })
+        assert r.status_code == 400
+
+
+# ---------------- Email graceful failure (Resend not configured) ----------------
+class TestEmailGraceful:
+    def test_email_document_returns_400_when_unconfigured(self, admin_client):
+        # need an existing doc id
+        docs = admin_client.get(f"{API}/documents?type=invoice").json()
+        assert docs, "Need at least one invoice for this test"
+        did = docs[0]["id"]
+        r = admin_client.post(f"{API}/documents/{did}/email", json={"to": "test@example.com"})
+        assert r.status_code == 400
+        assert "not configured" in r.text.lower() or "resend" in r.text.lower()
+
+
 
 # ---------------- cleanup ----------------
 @pytest.fixture(scope="session", autouse=True)

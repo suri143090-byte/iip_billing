@@ -11,6 +11,9 @@ const TITLES = {
   invoice: { title: "Invoices", subtitle: "GST invoices & payment tracking" },
   quotation: { title: "Quotations", subtitle: "Estimates & price quotes" },
   proforma: { title: "Proforma Invoices", subtitle: "Proforma documents" },
+  purchase_order: { title: "Purchase Orders", subtitle: "Orders sent to suppliers" },
+  delivery_challan: { title: "Delivery Challans", subtitle: "Goods delivery notes" },
+  credit_note: { title: "Credit Notes", subtitle: "Returns & adjustments" },
 };
 
 export default function DocumentsPage({ docType }) {

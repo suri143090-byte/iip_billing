@@ -13,7 +13,10 @@ import { ArrowLeft, Plus, Trash2, Save } from "lucide-react";
 import { toast } from "sonner";
 
 const GST_RATES = [0, 5, 12, 18, 28];
-const DOC_LABEL = { invoice: "Invoice", quotation: "Quotation", proforma: "Proforma Invoice" };
+const DOC_LABEL = {
+  invoice: "Invoice", quotation: "Quotation", proforma: "Proforma Invoice",
+  purchase_order: "Purchase Order", delivery_challan: "Delivery Challan", credit_note: "Credit Note",
+};
 
 const emptyItem = () => ({ product_id: null, name: "", hsn: "", qty: 1, rate: 0, gst_rate: 18 });
 
