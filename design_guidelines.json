@@ -1,0 +1,134 @@
+{
+  "theme": "light",
+  "archetype": "Archetype 4: Swiss & High-Contrast",
+  "domain": "Finance/Business SaaS (Billing/Invoicing)",
+  "brand_name": "IIP Billing Pro (Indian Industrial Products)",
+  "colors": {
+    "primary": {
+      "DEFAULT": "#1D4ED8",
+      "light": "#3B82F6",
+      "dark": "#1E3A8A",
+      "foreground": "#FFFFFF",
+      "description": "Trustworthy corporate blue. Used for primary CTAs, active states, and primary dashboard metrics."
+    },
+    "accent": {
+      "DEFAULT": "#EA580C",
+      "light": "#F97316",
+      "dark": "#C2410C",
+      "foreground": "#FFFFFF",
+      "description": "Action-oriented orange. Used for Pending Payments, warnings, and secondary call-to-actions."
+    },
+    "background": {
+      "DEFAULT": "#F8FAFC",
+      "paper": "#FFFFFF",
+      "description": "Slate-50 for app background, pure White for cards/paper to ensure scannability."
+    },
+    "text": {
+      "primary": "#0F172A",
+      "secondary": "#475569",
+      "muted": "#94A3B8"
+    },
+    "border": {
+      "DEFAULT": "#E2E8F0",
+      "strong": "#CBD5E1"
+    },
+    "status": {
+      "success": "#16A34A",
+      "warning": "#EA580C",
+      "error": "#DC2626",
+      "info": "#2563EB"
+    }
+  },
+  "typography": {
+    "heading_font": "Outfit",
+    "body_font": "IBM Plex Sans",
+    "scale": {
+      "h1": "text-4xl sm:text-5xl tracking-tight font-semibold",
+      "h2": "text-2xl sm:text-3xl tracking-tight font-medium",
+      "h3": "text-xl sm:text-2xl font-medium",
+      "h4": "text-lg sm:text-xl font-medium",
+      "body": "text-sm sm:text-base leading-relaxed",
+      "small": "text-xs sm:text-sm text-secondary",
+      "overline": "text-xs tracking-[0.2em] uppercase font-bold text-secondary"
+    },
+    "description": "Outfit provides a modern, clean, authoritative feel for headings. IBM Plex Sans is highly legible for dense data, tables, and GST numbers."
+  },
+  "spacing_and_layout": {
+    "philosophy": "Functional, dense but breathable. Utilize generous padding in containers, but keep data tables tight for scannability.",
+    "container_padding": "p-4 sm:p-6 md:p-8",
+    "grid_gaps": "gap-4 sm:gap-6",
+    "border_radius": "rounded-lg",
+    "dashboard_grid": {
+      "mobile": "grid-cols-1 gap-4",
+      "desktop": "grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6",
+      "widget_spans": {
+        "kpi_summary": "col-span-1",
+        "primary_chart": "col-span-2 row-span-2 md:col-span-3",
+        "feed_list": "col-span-1 row-span-2 md:col-span-1"
+      }
+    }
+  },
+  "components": {
+    "card": {
+      "style": "bg-white border border-border shadow-sm rounded-lg",
+      "hover": "hover:shadow-md hover:border-strong transition-all duration-200"
+    },
+    "button": {
+      "primary": "bg-primary text-white hover:bg-primary-dark font-medium rounded-md px-4 py-2",
+      "accent": "bg-accent text-white hover:bg-accent-dark font-medium rounded-md px-4 py-2",
+      "outline": "border border-border text-text-primary hover:bg-background rounded-md px-4 py-2"
+    },
+    "table": {
+      "header": "bg-background text-text-secondary text-xs uppercase tracking-wider font-semibold border-b border-strong",
+      "row": "border-b border-border hover:bg-slate-50 transition-colors",
+      "cell": "py-3 px-4 text-sm"
+    },
+    "bottom_navigation": {
+      "style": "fixed bottom-0 left-0 right-0 bg-white border-t border-border flex justify-around items-center h-16 md:hidden z-50",
+      "item": "flex flex-col items-center justify-center w-full h-full text-secondary hover:text-primary",
+      "active_item": "text-primary font-medium"
+    },
+    "invoice_templates": {
+      "Classic": "Traditional table format, clear grid borders, simple black and white with blue header.",
+      "Modern": "Rounded corners, light gray backgrounds for table headers, clean sans-serif.",
+      "Premium": "Dark blue accents, sophisticated layout, logo centered, subtle watermarks.",
+      "Industrial": "High contrast, thick borders, very structured, perfect for B2B IIP products.",
+      "Blue Professional": "Blue primary color dominates the table headers, totals, and accent lines."
+    }
+  },
+  "media": {
+    "icons": {
+      "library": "@phosphor-icons/react",
+      "description": "Duotone weight for high-end SaaS feel on dashboard, regular weight for dense tables."
+    },
+    "images": [
+      {
+        "category": "user_avatar",
+        "url": "https://images.unsplash.com/photo-1662850886700-4ec19bd30d11?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMzl8MHwxfHNlYXJjaHwyfHxidXNpbmVzcyUyMG93bmVyJTIwc21pbGluZ3xlbnwwfHx8fDE3ODEwMTkwMTl8MA&ixlib=rb-4.1.0&q=85",
+        "description": "Professional smiling business owner avatar."
+      },
+      {
+        "category": "industrial_background",
+        "url": "https://images.unsplash.com/photo-1496247749665-49cf5b1022e9?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1ODh8MHwxfHNlYXJjaHwxfHxpbmR1c3RyaWFsJTIwYmFja2dyb3VuZHxlbnwwfHx8fDE3ODEwMTkwMTl8MA&ixlib=rb-4.1.0&q=85",
+        "description": "Subtle industrial factory background for login or landing page hero section."
+      }
+    ]
+  },
+  "interactions_and_motion": {
+    "hover_states": "All buttons and table rows must have visible hover states with color transitions.",
+    "focus_states": "Focus states must use ring-2 ring-primary ring-offset-1 for accessibility.",
+    "transitions": "Use transition-all duration-200 ease-in-out for micro-interactions."
+  },
+  "testing": {
+    "attributes": "All interactive elements MUST include data-testid attribute (e.g., data-testid='create-invoice-btn')."
+  },
+  "instructions_to_main_agent": [
+    "Implement the UI using React, Tailwind CSS, and Shadcn UI components.",
+    "Ensure mobile-first responsiveness. The bottom navigation bar is critical for mobile view (md:hidden).",
+    "Use a Sidebar for desktop layouts (hidden on mobile).",
+    "Create the 5 specified invoice templates in the UI for the user to choose from when generating a PDF.",
+    "Integrate the @phosphor-icons/react library for all iconography.",
+    "Use IBM Plex Sans for all data-heavy tables and invoices for crisp numerical legibility.",
+    "Do not use placeholder URLs for images; use the provided media URLs."
+  ]
+}
