@@ -29,7 +29,9 @@ export default function Admin() {
     api.get("/admin/users").then((r) => setUsers(r.data)).catch(() => {});
     api.get("/admin/payments").then((r) => setPayments(r.data)).catch(() => {});
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    if (user && user.role === "admin") load();
+  }, [user]);
 
   if (user && user.role !== "admin") return <Navigate to="/" replace />;
 

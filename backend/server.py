@@ -483,8 +483,24 @@ async def documents_update(did: str, payload: DocumentInput, user: dict = Depend
     existing = await db.documents.find_one({"id": did, "owner_id": user["id"]})
     if not existing:
         raise HTTPException(status_code=404, detail="Document not found")
+    # Restore stock from the old invoice items before re-applying the new ones
+    if existing.get("type") == "invoice":
+        for it in existing.get("items", []):
+            if it.get("product_id"):
+                await db.products.update_one(
+                    {"id": it["product_id"], "owner_id": user["id"]},
+                    {"$inc": {"stock": float(it.get("qty", 0) or 0)}},
+                )
     doc = await build_document(payload, user, doc_id=did, number=existing.get("number"))
     await db.documents.update_one({"id": did, "owner_id": user["id"]}, {"$set": doc})
+    # Apply stock decrement for the new invoice items
+    if doc.get("type") == "invoice":
+        for it in doc.get("items", []):
+            if it.get("product_id"):
+                await db.products.update_one(
+                    {"id": it["product_id"], "owner_id": user["id"]},
+                    {"$inc": {"stock": -float(it.get("qty", 0) or 0)}},
+                )
     doc.pop("owner_id", None)
     return doc
 
@@ -498,6 +514,14 @@ async def documents_status(did: str, body: dict, user: dict = Depends(get_curren
 
 @api_router.delete("/documents/{did}")
 async def documents_delete(did: str, user: dict = Depends(get_current_user)):
+    existing = await db.documents.find_one({"id": did, "owner_id": user["id"]})
+    if existing and existing.get("type") == "invoice":
+        for it in existing.get("items", []):
+            if it.get("product_id"):
+                await db.products.update_one(
+                    {"id": it["product_id"], "owner_id": user["id"]},
+                    {"$inc": {"stock": float(it.get("qty", 0) or 0)}},
+                )
     await db.documents.delete_one({"id": did, "owner_id": user["id"]})
     return {"message": "deleted"}
 
@@ -806,6 +830,8 @@ class AdminPlanUpdate(BaseModel):
 
 @api_router.patch("/admin/users/{uid}/plan")
 async def admin_update_plan(uid: str, payload: AdminPlanUpdate, admin: dict = Depends(require_admin)):
+    if payload.plan not in ("free", "pro", "premium"):
+        raise HTTPException(status_code=400, detail="Invalid plan. Must be free, pro, or premium.")
     expires = None
     if payload.plan in PLAN_PRICES:
         expires = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
