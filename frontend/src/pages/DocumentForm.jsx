@@ -9,7 +9,7 @@ import { Textarea } from "../components/ui/textarea";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "../components/ui/select";
-import { ArrowLeft, Plus, Trash2, Save } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, Save, Percent, IndianRupee } from "lucide-react";
 import { toast } from "sonner";
 
 const GST_RATES = [0, 5, 12, 18, 28];
@@ -18,7 +18,21 @@ const DOC_LABEL = {
   purchase_order: "Purchase Order", delivery_challan: "Delivery Challan", credit_note: "Credit Note",
 };
 
-const emptyItem = () => ({ product_id: null, name: "", hsn: "", qty: 1, rate: 0, gst_rate: 18 });
+const emptyItem = () => ({ product_id: null, name: "", description: "", hsn: "", qty: 1, rate: 0, discount: 0, gst_rate: 18 });
+const defaultCharges = () => [
+  { label: "Freight Charges", amount: 0, gst_rate: 18 },
+  { label: "Packing Charges", amount: 0, gst_rate: 18 },
+  { label: "Loading Charges", amount: 0, gst_rate: 18 },
+  { label: "Other Charges", amount: 0, gst_rate: 0 },
+];
+const buildCharges = (saved) => {
+  const base = defaultCharges();
+  if (!saved || !saved.length) return base;
+  return base.map((b) => {
+    const f = saved.find((s) => s.label === b.label);
+    return f ? { label: b.label, amount: f.amount, gst_rate: f.gst_rate } : b;
+  });
+};
 
 export default function DocumentForm() {
   const { docType, id } = useParams();
@@ -36,7 +50,8 @@ export default function DocumentForm() {
     date: new Date().toISOString().slice(0, 10),
     due_date: "",
     items: [emptyItem()],
-    discount: 0,
+    discount_mode: "percent",
+    charges: defaultCharges(),
     notes: "",
     terms: "Goods once sold will not be taken back. Payment due within 15 days.",
     status: "unpaid",
@@ -45,11 +60,7 @@ export default function DocumentForm() {
   });
 
   useEffect(() => {
-    Promise.all([
-      api.get("/company"),
-      api.get("/customers"),
-      api.get("/products"),
-    ]).then(([c, cust, prod]) => {
+    Promise.all([api.get("/company"), api.get("/customers"), api.get("/products")]).then(([c, cust, prod]) => {
       setCompany(c.data);
       setCustomers(cust.data);
       setProducts(prod.data);
@@ -63,8 +74,11 @@ export default function DocumentForm() {
           customer_id: data.customer_id || "",
           date: data.date,
           due_date: data.due_date || "",
-          items: data.items.length ? data.items.map((i) => ({ product_id: i.product_id, name: i.name, hsn: i.hsn, qty: i.qty, rate: i.rate, gst_rate: i.gst_rate })) : [emptyItem()],
-          discount: data.discount || 0,
+          items: data.items.length
+            ? data.items.map((i) => ({ product_id: i.product_id, name: i.name, description: i.description || "", hsn: i.hsn, qty: i.qty, rate: i.rate, discount: i.discount || 0, gst_rate: i.gst_rate }))
+            : [emptyItem()],
+          discount_mode: data.discount_mode || "percent",
+          charges: buildCharges(data.charges),
           notes: data.notes || "",
           terms: data.terms || "",
           status: data.status || "unpaid",
@@ -82,38 +96,65 @@ export default function DocumentForm() {
     return selectedCustomer.state.trim().toLowerCase() === company.state.trim().toLowerCase();
   }, [selectedCustomer, company]);
 
+  const lineDiscount = (it) => {
+    const base = (parseFloat(it.qty) || 0) * (parseFloat(it.rate) || 0);
+    const d = parseFloat(it.discount) || 0;
+    return doc.discount_mode === "amount" ? Math.min(d, base) : (base * d) / 100;
+  };
+
   const totals = useMemo(() => {
-    let subtotal = 0, taxTotal = 0;
+    let subtotal = 0, taxTotal = 0, discTotal = 0;
     doc.items.forEach((it) => {
-      const taxable = (parseFloat(it.qty) || 0) * (parseFloat(it.rate) || 0);
-      const tax = (taxable * (parseFloat(it.gst_rate) || 0)) / 100;
+      const base = (parseFloat(it.qty) || 0) * (parseFloat(it.rate) || 0);
+      const disc = lineDiscount(it);
+      const taxable = base - disc;
+      taxTotal += (taxable * (parseFloat(it.gst_rate) || 0)) / 100;
       subtotal += taxable;
-      taxTotal += tax;
+      discTotal += disc;
+    });
+    let chargesTotal = 0;
+    doc.charges.forEach((c) => {
+      const amt = parseFloat(c.amount) || 0;
+      if (amt > 0) {
+        chargesTotal += amt;
+        taxTotal += (amt * (parseFloat(c.gst_rate) || 0)) / 100;
+      }
     });
     const cgst = isIntra ? taxTotal / 2 : 0;
     const sgst = isIntra ? taxTotal / 2 : 0;
     const igst = isIntra ? 0 : taxTotal;
-    const total = subtotal - (parseFloat(doc.discount) || 0) + taxTotal;
-    return { subtotal, cgst, sgst, igst, taxTotal, total };
-  }, [doc.items, doc.discount, isIntra]);
+    const total = subtotal + chargesTotal + taxTotal;
+    return { subtotal, chargesTotal, discTotal, cgst, sgst, igst, taxTotal, total };
+    // eslint-disable-next-line
+  }, [doc.items, doc.charges, doc.discount_mode, isIntra]);
 
   const updateItem = (idx, key, value) => {
-    const items = [...doc.items];
-    items[idx] = { ...items[idx], [key]: value };
-    setDoc({ ...doc, items });
+    setDoc((d) => {
+      const items = [...d.items];
+      items[idx] = { ...items[idx], [key]: value };
+      return { ...d, items };
+    });
   };
 
   const pickProduct = (idx, productId) => {
     const p = products.find((x) => x.id === productId);
-    const items = [...doc.items];
-    if (p) {
-      items[idx] = { product_id: p.id, name: p.name, hsn: p.hsn, qty: items[idx].qty || 1, rate: p.price, gst_rate: p.gst_rate };
-    }
-    setDoc({ ...doc, items });
+    setDoc((d) => {
+      const items = [...d.items];
+      if (p) items[idx] = { ...items[idx], product_id: p.id, name: p.name, description: p.description || items[idx].description, hsn: p.hsn, rate: p.price, gst_rate: p.gst_rate };
+      return { ...d, items };
+    });
   };
 
-  const addItem = () => setDoc({ ...doc, items: [...doc.items, emptyItem()] });
-  const removeItem = (idx) => setDoc({ ...doc, items: doc.items.filter((_, i) => i !== idx) });
+  const addItem = () => setDoc((d) => ({ ...d, items: [...d.items, emptyItem()] }));
+  const removeItem = (idx) => setDoc((d) => ({ ...d, items: d.items.filter((_, i) => i !== idx) }));
+
+  const updateCharge = (idx, key, value) => {
+    setDoc((d) => {
+      const charges = [...d.charges];
+      charges[idx] = { ...charges[idx], [key]: value };
+      return { ...d, charges };
+    });
+  };
 
   const save = async () => {
     if (!doc.items.some((i) => i.name.trim())) return toast.error("Add at least one item");
@@ -121,17 +162,17 @@ export default function DocumentForm() {
     const payload = {
       ...doc,
       customer_id: doc.customer_id || null,
-      discount: parseFloat(doc.discount) || 0,
       amount_paid: parseFloat(doc.amount_paid) || 0,
       items: doc.items.filter((i) => i.name.trim()).map((i) => ({
-        product_id: i.product_id || null, name: i.name, hsn: i.hsn || "",
-        qty: parseFloat(i.qty) || 0, rate: parseFloat(i.rate) || 0, gst_rate: parseFloat(i.gst_rate) || 0,
+        product_id: i.product_id || null, name: i.name, description: i.description || "", hsn: i.hsn || "",
+        qty: parseFloat(i.qty) || 0, rate: parseFloat(i.rate) || 0, discount: parseFloat(i.discount) || 0, gst_rate: parseFloat(i.gst_rate) || 0,
+      })),
+      charges: doc.charges.filter((c) => (parseFloat(c.amount) || 0) > 0).map((c) => ({
+        label: c.label, amount: parseFloat(c.amount) || 0, gst_rate: parseFloat(c.gst_rate) || 0,
       })),
     };
     try {
-      let res;
-      if (isEdit) res = await api.put(`/documents/${id}`, payload);
-      else res = await api.post("/documents", payload);
+      const res = isEdit ? await api.put(`/documents/${id}`, payload) : await api.post("/documents", payload);
       toast.success(`${DOC_LABEL[docType]} saved`);
       navigate(`/documents/${res.data.id}`);
     } catch (e) {
@@ -140,6 +181,8 @@ export default function DocumentForm() {
       setSaving(false);
     }
   };
+
+  const discLabel = doc.discount_mode === "amount" ? "Disc ₹" : "Disc %";
 
   return (
     <div className="p-4 sm:p-6 md:p-8 space-y-6 max-w-5xl mx-auto">
@@ -154,11 +197,11 @@ export default function DocumentForm() {
       {/* Header info */}
       <div className="bg-white rounded-xl border border-border shadow-sm p-5 grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="space-y-1.5 sm:col-span-1">
-          <Label>Customer</Label>
+          <Label>{docType === "purchase_order" ? "Supplier / Party" : "Customer"}</Label>
           <Select value={doc.customer_id} onValueChange={(v) => setDoc({ ...doc, customer_id: v })}>
-            <SelectTrigger data-testid="doc-customer"><SelectValue placeholder="Select customer" /></SelectTrigger>
+            <SelectTrigger data-testid="doc-customer"><SelectValue placeholder="Select party" /></SelectTrigger>
             <SelectContent>
-              {customers.length === 0 && <div className="px-3 py-2 text-sm text-muted-foreground">No customers — add one first</div>}
+              {customers.length === 0 && <div className="px-3 py-2 text-sm text-muted-foreground">No parties — add one first</div>}
               {customers.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
             </SelectContent>
           </Select>
@@ -183,48 +226,90 @@ export default function DocumentForm() {
 
       {/* Line items */}
       <div className="bg-white rounded-xl border border-border shadow-sm p-5">
-        <div className="flex items-center justify-between mb-3">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <h3 className="font-heading font-semibold text-[#0F172A]">Items</h3>
-          <Button variant="outline" size="sm" data-testid="add-item-btn" onClick={addItem}><Plus className="h-4 w-4 mr-1" /> Add Item</Button>
+          <div className="flex items-center gap-3">
+            {/* Discount mode toggle */}
+            <div className="flex items-center gap-1 bg-muted rounded-lg p-1" data-testid="discount-mode-toggle">
+              <button
+                type="button"
+                data-testid="discount-mode-percent"
+                onClick={() => setDoc({ ...doc, discount_mode: "percent" })}
+                className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-semibold transition ${doc.discount_mode === "percent" ? "bg-iip-blue text-white" : "text-muted-foreground hover:text-foreground"}`}
+              >
+                <Percent className="h-3 w-3" /> Discount
+              </button>
+              <button
+                type="button"
+                data-testid="discount-mode-amount"
+                onClick={() => setDoc({ ...doc, discount_mode: "amount" })}
+                className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-semibold transition ${doc.discount_mode === "amount" ? "bg-iip-blue text-white" : "text-muted-foreground hover:text-foreground"}`}
+              >
+                <IndianRupee className="h-3 w-3" /> Amount Discount
+              </button>
+            </div>
+            <Button variant="outline" size="sm" data-testid="add-item-btn" onClick={addItem}><Plus className="h-4 w-4 mr-1" /> Add Item</Button>
+          </div>
         </div>
+
         <div className="space-y-3">
-          {doc.items.map((it, idx) => (
-            <div key={idx} data-testid={`item-row-${idx}`} className="grid grid-cols-12 gap-2 items-end border-b border-border pb-3 last:border-0">
-              <div className="col-span-12 sm:col-span-4 space-y-1">
-                <Label className="text-xs">Item</Label>
-                {products.length > 0 && (
-                  <Select value={it.product_id || ""} onValueChange={(v) => pickProduct(idx, v)}>
-                    <SelectTrigger className="h-9" data-testid={`item-product-${idx}`}><SelectValue placeholder="Pick product / type below" /></SelectTrigger>
-                    <SelectContent>{products.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent>
-                  </Select>
-                )}
-                <Input data-testid={`item-name-${idx}`} className="h-9" placeholder="Item name" value={it.name} onChange={(e) => updateItem(idx, "name", e.target.value)} />
+          {doc.items.map((it, idx) => {
+            const base = (parseFloat(it.qty) || 0) * (parseFloat(it.rate) || 0);
+            const taxable = base - lineDiscount(it);
+            const amount = taxable * (1 + (parseFloat(it.gst_rate) || 0) / 100);
+            return (
+              <div key={idx} data-testid={`item-row-${idx}`} className="border border-border rounded-lg p-3 space-y-2">
+                <div className="flex items-start gap-2">
+                  <div className="flex-1 space-y-2">
+                    {products.length > 0 && (
+                      <Select value={it.product_id || ""} onValueChange={(v) => pickProduct(idx, v)}>
+                        <SelectTrigger className="h-9" data-testid={`item-product-${idx}`}><SelectValue placeholder="Pick product (optional)" /></SelectTrigger>
+                        <SelectContent>{products.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent>
+                      </Select>
+                    )}
+                    <Input data-testid={`item-name-${idx}`} className="h-9 font-medium" placeholder="Item name" value={it.name} onChange={(e) => updateItem(idx, "name", e.target.value)} />
+                    <Textarea data-testid={`item-desc-${idx}`} className="min-h-[42px] text-sm" placeholder="Description (multi-line, optional)" value={it.description} onChange={(e) => updateItem(idx, "description", e.target.value)} rows={2} />
+                  </div>
+                  <button data-testid={`remove-item-${idx}`} onClick={() => removeItem(idx)} className="p-2 rounded hover:bg-muted text-muted-foreground hover:text-destructive mt-1"><Trash2 className="h-4 w-4" /></button>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
+                  <div className="space-y-1"><Label className="text-xs">HSN/SAC</Label><Input className="h-9" value={it.hsn} onChange={(e) => updateItem(idx, "hsn", e.target.value)} /></div>
+                  <div className="space-y-1"><Label className="text-xs">Qty</Label><Input className="h-9" type="number" data-testid={`item-qty-${idx}`} value={it.qty} onChange={(e) => updateItem(idx, "qty", e.target.value)} /></div>
+                  <div className="space-y-1"><Label className="text-xs">Rate</Label><Input className="h-9" type="number" data-testid={`item-rate-${idx}`} value={it.rate} onChange={(e) => updateItem(idx, "rate", e.target.value)} /></div>
+                  <div className="space-y-1"><Label className="text-xs">{discLabel}</Label><Input className="h-9" type="number" data-testid={`item-discount-${idx}`} value={it.discount} onChange={(e) => updateItem(idx, "discount", e.target.value)} /></div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">GST %</Label>
+                    <Select value={String(it.gst_rate)} onValueChange={(v) => updateItem(idx, "gst_rate", parseFloat(v))}>
+                      <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                      <SelectContent>{GST_RATES.map((g) => <SelectItem key={g} value={String(g)}>{g}%</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1"><Label className="text-xs">Amount</Label><p className="h-9 flex items-center text-sm font-semibold">{fmtCurrency(amount)}</p></div>
+                </div>
               </div>
-              <div className="col-span-4 sm:col-span-1 space-y-1">
-                <Label className="text-xs">HSN</Label>
-                <Input className="h-9" value={it.hsn} onChange={(e) => updateItem(idx, "hsn", e.target.value)} />
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Additional charges */}
+      <div className="bg-white rounded-xl border border-border shadow-sm p-5">
+        <h3 className="font-heading font-semibold text-[#0F172A] mb-1">Additional Charges</h3>
+        <p className="text-xs text-muted-foreground mb-4">Freight, packing, loading & other charges (each can carry GST)</p>
+        <div className="space-y-2">
+          {doc.charges.map((c, idx) => (
+            <div key={idx} data-testid={`charge-row-${idx}`} className="grid grid-cols-12 gap-2 items-center">
+              <div className="col-span-12 sm:col-span-6 text-sm font-medium text-[#0F172A]">{c.label}</div>
+              <div className="col-span-7 sm:col-span-3 space-y-1">
+                <Label className="text-xs sm:hidden">Amount (₹)</Label>
+                <Input className="h-9" type="number" data-testid={`charge-amount-${idx}`} placeholder="0" value={c.amount} onChange={(e) => updateCharge(idx, "amount", e.target.value)} />
               </div>
-              <div className="col-span-4 sm:col-span-1 space-y-1">
-                <Label className="text-xs">Qty</Label>
-                <Input className="h-9" type="number" data-testid={`item-qty-${idx}`} value={it.qty} onChange={(e) => updateItem(idx, "qty", e.target.value)} />
-              </div>
-              <div className="col-span-4 sm:col-span-2 space-y-1">
-                <Label className="text-xs">Rate</Label>
-                <Input className="h-9" type="number" data-testid={`item-rate-${idx}`} value={it.rate} onChange={(e) => updateItem(idx, "rate", e.target.value)} />
-              </div>
-              <div className="col-span-5 sm:col-span-2 space-y-1">
-                <Label className="text-xs">GST %</Label>
-                <Select value={String(it.gst_rate)} onValueChange={(v) => updateItem(idx, "gst_rate", parseFloat(v))}>
-                  <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
-                  <SelectContent>{GST_RATES.map((g) => <SelectItem key={g} value={String(g)}>{g}%</SelectItem>)}</SelectContent>
+              <div className="col-span-5 sm:col-span-3 space-y-1">
+                <Label className="text-xs sm:hidden">GST %</Label>
+                <Select value={String(c.gst_rate)} onValueChange={(v) => updateCharge(idx, "gst_rate", parseFloat(v))}>
+                  <SelectTrigger className="h-9" data-testid={`charge-gst-${idx}`}><SelectValue /></SelectTrigger>
+                  <SelectContent>{GST_RATES.map((g) => <SelectItem key={g} value={String(g)}>{g}% GST</SelectItem>)}</SelectContent>
                 </Select>
-              </div>
-              <div className="col-span-5 sm:col-span-1 space-y-1">
-                <Label className="text-xs">Amount</Label>
-                <p className="h-9 flex items-center text-sm font-semibold">{fmtCurrency((parseFloat(it.qty) || 0) * (parseFloat(it.rate) || 0) * (1 + (parseFloat(it.gst_rate) || 0) / 100))}</p>
-              </div>
-              <div className="col-span-2 sm:col-span-1 flex justify-end">
-                <button data-testid={`remove-item-${idx}`} onClick={() => removeItem(idx)} className="p-2 rounded hover:bg-muted text-muted-foreground hover:text-destructive"><Trash2 className="h-4 w-4" /></button>
               </div>
             </div>
           ))}
@@ -266,11 +351,9 @@ export default function DocumentForm() {
         <div className="bg-white rounded-xl border border-border shadow-sm p-5">
           <h3 className="font-heading font-semibold text-[#0F172A] mb-4">Summary</h3>
           <div className="space-y-2 text-sm">
-            <div className="flex justify-between"><span className="text-muted-foreground">Subtotal</span><span className="font-medium">{fmtCurrency(totals.subtotal)}</span></div>
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">Discount</span>
-              <Input type="number" data-testid="doc-discount" value={doc.discount} onChange={(e) => setDoc({ ...doc, discount: e.target.value })} className="h-8 w-28 text-right" />
-            </div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Subtotal (Taxable)</span><span className="font-medium">{fmtCurrency(totals.subtotal)}</span></div>
+            {totals.discTotal > 0 && <div className="flex justify-between"><span className="text-muted-foreground">Total Discount</span><span className="font-medium text-green-600">- {fmtCurrency(totals.discTotal)}</span></div>}
+            {totals.chargesTotal > 0 && <div className="flex justify-between"><span className="text-muted-foreground">Additional Charges</span><span className="font-medium">{fmtCurrency(totals.chargesTotal)}</span></div>}
             {isIntra ? (
               <>
                 <div className="flex justify-between"><span className="text-muted-foreground">CGST</span><span className="font-medium">{fmtCurrency(totals.cgst)}</span></div>

@@ -93,14 +93,16 @@ export default function InvoiceDocument({ doc, company, template = "classic" }) 
 
       {/* Items table */}
       <div style={{ padding: "0 24px", marginTop: 16 }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10 }}>
           <thead>
             <tr style={{ background: t.tableHead, color: t.tableHeadText }}>
-              <th style={th()}>#</th>
+              <th style={th()}>Sr</th>
               <th style={{ ...th(), textAlign: "left" }}>Item</th>
-              <th style={th()}>HSN</th>
+              <th style={{ ...th(), textAlign: "left" }}>Description</th>
+              <th style={th()}>HSN/SAC</th>
               <th style={th()}>Qty</th>
               <th style={{ ...th(), textAlign: "right" }}>Rate</th>
+              <th style={{ ...th(), textAlign: "right" }}>Disc</th>
               <th style={{ ...th(), textAlign: "right" }}>Taxable</th>
               <th style={th()}>GST%</th>
               {isIntra ? (
@@ -117,27 +119,47 @@ export default function InvoiceDocument({ doc, company, template = "classic" }) 
           <tbody>
             {doc.items.map((it, i) => {
               const tax = it.tax || 0;
+              const discAmt = it.discount_amount != null ? it.discount_amount : 0;
               return (
                 <tr key={i} style={{ borderBottom: "1px solid #E2E8F0" }}>
                   <td style={td()}>{i + 1}</td>
                   <td style={{ ...td(), textAlign: "left", fontWeight: 600 }}>{it.name}</td>
+                  <td style={{ ...td(), textAlign: "left", color: "#64748B", whiteSpace: "pre-line", fontSize: 9 }}>{it.description || "-"}</td>
                   <td style={td()}>{it.hsn || "-"}</td>
                   <td style={td()}>{it.qty}</td>
                   <td style={{ ...td(), textAlign: "right" }}>{fmtCurrency(it.rate)}</td>
+                  <td style={{ ...td(), textAlign: "right" }}>{discAmt > 0 ? fmtCurrency(discAmt) : "-"}</td>
                   <td style={{ ...td(), textAlign: "right" }}>{fmtCurrency(it.taxable)}</td>
                   <td style={td()}>{it.gst_rate}%</td>
                   {isIntra ? (
                     <>
-                      <td style={{ ...td(), textAlign: "right" }}>{fmtCurrency(tax / 2)}</td>
-                      <td style={{ ...td(), textAlign: "right" }}>{fmtCurrency(tax / 2)}</td>
+                      <td style={{ ...td(), textAlign: "right" }}>{fmtCurrency(it.cgst != null ? it.cgst : tax / 2)}</td>
+                      <td style={{ ...td(), textAlign: "right" }}>{fmtCurrency(it.sgst != null ? it.sgst : tax / 2)}</td>
                     </>
                   ) : (
-                    <td style={{ ...td(), textAlign: "right" }}>{fmtCurrency(tax)}</td>
+                    <td style={{ ...td(), textAlign: "right" }}>{fmtCurrency(it.igst != null ? it.igst : tax)}</td>
                   )}
                   <td style={{ ...td(), textAlign: "right", fontWeight: 700 }}>{fmtCurrency(it.amount)}</td>
                 </tr>
               );
             })}
+            {(doc.charges || []).map((ch, i) => (
+              <tr key={`ch-${i}`} style={{ borderBottom: "1px solid #E2E8F0", background: "#F8FAFC" }}>
+                <td style={td()}>{doc.items.length + i + 1}</td>
+                <td style={{ ...td(), textAlign: "left", fontWeight: 600 }} colSpan={6}>{ch.label}</td>
+                <td style={{ ...td(), textAlign: "right" }}>{fmtCurrency(ch.amount)}</td>
+                <td style={td()}>{ch.gst_rate}%</td>
+                {isIntra ? (
+                  <>
+                    <td style={{ ...td(), textAlign: "right" }}>{fmtCurrency((ch.tax || 0) / 2)}</td>
+                    <td style={{ ...td(), textAlign: "right" }}>{fmtCurrency((ch.tax || 0) / 2)}</td>
+                  </>
+                ) : (
+                  <td style={{ ...td(), textAlign: "right" }}>{fmtCurrency(ch.tax || 0)}</td>
+                )}
+                <td style={{ ...td(), textAlign: "right", fontWeight: 700 }}>{fmtCurrency((ch.amount || 0) + (ch.tax || 0))}</td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
@@ -168,8 +190,9 @@ export default function InvoiceDocument({ doc, company, template = "classic" }) 
         <div>
           <table style={{ width: "100%", fontSize: 12 }}>
             <tbody>
-              <tr><td style={trow()}>Subtotal</td><td style={{ ...trow(), textAlign: "right" }}>{fmtCurrency(doc.subtotal)}</td></tr>
-              {doc.discount > 0 && <tr><td style={trow()}>Discount</td><td style={{ ...trow(), textAlign: "right" }}>- {fmtCurrency(doc.discount)}</td></tr>}
+              <tr><td style={trow()}>Subtotal (Taxable)</td><td style={{ ...trow(), textAlign: "right" }}>{fmtCurrency(doc.subtotal)}</td></tr>
+              {doc.total_discount > 0 && <tr><td style={trow()}>Total Discount</td><td style={{ ...trow(), textAlign: "right", color: "#16A34A" }}>- {fmtCurrency(doc.total_discount)}</td></tr>}
+              {doc.charges_total > 0 && <tr><td style={trow()}>Additional Charges</td><td style={{ ...trow(), textAlign: "right" }}>{fmtCurrency(doc.charges_total)}</td></tr>}
               {isIntra ? (
                 <>
                   <tr><td style={trow()}>CGST</td><td style={{ ...trow(), textAlign: "right" }}>{fmtCurrency(doc.cgst)}</td></tr>
@@ -178,6 +201,7 @@ export default function InvoiceDocument({ doc, company, template = "classic" }) 
               ) : (
                 <tr><td style={trow()}>IGST</td><td style={{ ...trow(), textAlign: "right" }}>{fmtCurrency(doc.igst)}</td></tr>
               )}
+              {doc.discount > 0 && <tr><td style={trow()}>Extra Discount</td><td style={{ ...trow(), textAlign: "right" }}>- {fmtCurrency(doc.discount)}</td></tr>}
               <tr>
                 <td style={{ padding: "10px 8px", fontWeight: 800, fontFamily: "'Outfit'", background: t.tableHead, color: t.tableHeadText }}>Grand Total</td>
                 <td style={{ padding: "10px 8px", textAlign: "right", fontWeight: 800, fontFamily: "'Outfit'", background: t.tableHead, color: t.tableHeadText }}>{fmtCurrency(doc.total)}</td>

@@ -1,0 +1,44 @@
+{
+  "summary": "Iteration 3: validated new per-item description, percent/amount discount toggle, additional charges with GST, and that the shared DocumentForm engine works across all 6 doc types (invoice/quotation/proforma/purchase_order/delivery_challan/credit_note). Added 11 new backend pytest cases to /app/backend/tests/test_charges_discount.py — ALL 11 PASS. Full regression: 65/65 pytest cases PASS in ~9s. UI Playwright on preview URL: admin login OK, invoice form computes ₹1,062 for {qty1,rate1000,disc10%,gst18} live, ₹1,298 after Freight 200 GST 18%, identical ₹1,298 when toggled to Amount Discount mode with disc=100, the column label correctly flips to 'Disc ₹', save persists and the rendered document view contains both the multi-line Description text and the Freight row. All 6 doc-type 'New' routes render the form with item-desc-{idx}, item-discount-{idx}, charge-amount-{idx}, charge-gst-{idx}, discount-mode-percent/amount, save-document-btn, doc-total testids present.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/documents", "issue": "Zero-amount charges are silently dropped on save (filter in compute_totals). On edit/reload the user no longer sees their 0-row entries — UI defaults regenerate 4 rows so OK, but worth documenting."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "DocumentForm Items header", "issues": ["Discount toggle pill (% / ₹) sits to the right of 'Items' label; on narrow viewports it can wrap below — confirm responsive stacking on <640px. Not tested at mobile width this run."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_charges_discount.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/iter3_results.xml"
+  ],
+  "action_items": [
+    "(Optional carry-over from iter-2) Invoice edit/delete still does not roll back product stock — recompute delta in documents_update and re-add on delete.",
+    "(Optional) On narrow viewports, verify the discount-mode toggle pill wraps cleanly under 'Items' label."
+  ],
+  "critical_code_review_comments": [
+    "compute_totals correctly applies per-item discount BEFORE GST in both percent and amount modes (verified: percent {1000*10%}=100, amount {100}=100; both yield taxable=900 and CGST+SGST=162 / IGST=162).",
+    "Additional-charge GST is added into the document-level cgst/sgst/igst buckets (not stored on the charge as cgst/sgst), so PDF rendering relies on the per-charge `tax` field — InvoiceDocument.jsx must split this for the GST PDF format. Worth re-verifying PDF column math when charges carry GST.",
+    "compute_totals filters out 0-amount charges before storage (lines 248-251 in server.py). Good for clean PDFs; document this in the API contract.",
+    "DocumentInput.discount_mode default is 'percent' and falls back to 'percent' if None — safe default.",
+    "build_document stores discount_mode AND items[].discount on each item, so edit-reload pre-populates correctly (verified by test_edit_preserves_description_discount_mode_and_charges).",
+    "server.py is 957 lines now — still exceeds the 700-line guideline (carry-over from iter-2). Recommend splitting into routers.",
+    "Charge model accepts arbitrary `label` (not enum); a malicious client could send any string. Currently low risk."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_charges_discount.py (new, 11 test cases)"
+  ],
+  "success_rate": {"backend": "100% (65/65 — 54 regression + 11 new)", "frontend": "100% (all 6 doc-type New forms load; live totals + save + view all verified for invoice)"},
+  "test_credentials": "admin@iipbilling.com / Admin@123 (premium).",
+  "seed_data_creation": "Tests create TEST_-prefixed customers (KA + MH) and documents in all 6 types; cleanup fixture deletes TEST_ customers/products at session end.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend regression: pytest /app/backend/tests/ -v runs 65 cases in ~9s. New iter-3 cases live in /app/backend/tests/test_charges_discount.py and cover: percent-mode+Freight intra (1298 total), amount-mode+Packing inter (1112 total), all 6 doc types via parametrize, edit preserves description/discount_mode/charges, zero-charge filter. Frontend preview URL: https://gst-invoice-hub-37.preview.emergentagent.com — admin login + invoice form live-calc was verified at the pixel level. Razorpay/Resend remain intentionally unconfigured — graceful 400s, do NOT report. Outstanding (pre-existing): invoice edit/delete does not roll back stock; server.py >900 lines.",
+  "rca of the issue": "No bugs found. All iteration-3 features (description column, discount mode toggle %/₹, additional charges with per-charge GST, discount-before-GST math, propagation across all 6 doc types, edit pre-population) work end-to-end at both API and UI level. Computed numbers match the spec exactly (1062, 1298, 1112)."
+}

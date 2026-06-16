@@ -153,10 +153,18 @@ class Product(BaseModel):
 class LineItem(BaseModel):
     product_id: Optional[str] = None
     name: str
+    description: Optional[str] = ""
     hsn: Optional[str] = ""
     qty: float = 1.0
     rate: float = 0.0
+    discount: float = 0.0
     gst_rate: float = 18.0
+
+
+class Charge(BaseModel):
+    label: str
+    amount: float = 0.0
+    gst_rate: float = 0.0
 
 
 class DocumentInput(BaseModel):
@@ -165,7 +173,9 @@ class DocumentInput(BaseModel):
     date: Optional[str] = None
     due_date: Optional[str] = None
     items: List[LineItem] = []
-    discount: float = 0.0
+    discount: float = 0.0  # optional flat document-level discount (legacy)
+    discount_mode: Optional[str] = "percent"  # percent | amount (per-item discount mode)
+    charges: List[Charge] = []  # Freight / Packing / Loading / Other
     notes: Optional[str] = ""
     terms: Optional[str] = ""
     status: Optional[str] = "unpaid"  # unpaid | paid | partial
@@ -193,39 +203,75 @@ class CompanySettings(BaseModel):
 # ----------------------------------------------------------------------------
 # Totals computation
 # ----------------------------------------------------------------------------
-def compute_totals(items, company_state, customer_state, discount=0.0):
-    subtotal = 0.0
+def compute_totals(items, company_state, customer_state, discount_mode="percent", charges=None, doc_discount=0.0):
     intra = True
     if customer_state and company_state:
         intra = customer_state.strip().lower() == company_state.strip().lower()
     cgst = sgst = igst = 0.0
+    subtotal = 0.0
+    total_discount = 0.0
     computed_items = []
     for it in items:
         qty = float(it.get("qty", 0) or 0)
         rate = float(it.get("rate", 0) or 0)
         gst_rate = float(it.get("gst_rate", 0) or 0)
-        taxable = round(qty * rate, 2)
-        tax = round(taxable * gst_rate / 100.0, 2)
-        subtotal += taxable
-        if intra:
-            cgst += tax / 2.0
-            sgst += tax / 2.0
+        disc = float(it.get("discount", 0) or 0)
+        base = round(qty * rate, 2)
+        # Discount applied BEFORE GST
+        if discount_mode == "amount":
+            disc_amt = round(min(disc, base), 2)
         else:
-            igst += tax
+            disc_amt = round(base * disc / 100.0, 2)
+        taxable = round(base - disc_amt, 2)
+        tax = round(taxable * gst_rate / 100.0, 2)
+        i_cgst = round(tax / 2.0, 2) if intra else 0.0
+        i_sgst = round(tax / 2.0, 2) if intra else 0.0
+        i_igst = 0.0 if intra else tax
+        subtotal += taxable
+        total_discount += disc_amt
+        cgst += i_cgst
+        sgst += i_sgst
+        igst += i_igst
         ci = dict(it)
+        ci["base"] = base
+        ci["discount_amount"] = disc_amt
         ci["taxable"] = taxable
         ci["tax"] = tax
+        ci["cgst"] = i_cgst
+        ci["sgst"] = i_sgst
+        ci["igst"] = i_igst
         ci["amount"] = round(taxable + tax, 2)
         computed_items.append(ci)
+    # Additional charges (Freight / Packing / Loading / Other), each may carry GST
+    computed_charges = []
+    charges_total = 0.0
+    for ch in (charges or []):
+        amt = float(ch.get("amount", 0) or 0)
+        if amt == 0:
+            continue
+        g = float(ch.get("gst_rate", 0) or 0)
+        ctax = round(amt * g / 100.0, 2)
+        if intra:
+            cgst += round(ctax / 2.0, 2)
+            sgst += round(ctax / 2.0, 2)
+        else:
+            igst += ctax
+        charges_total += amt
+        computed_charges.append({"label": ch.get("label", "Charge"), "amount": round(amt, 2), "gst_rate": g, "tax": ctax})
     subtotal = round(subtotal, 2)
+    charges_total = round(charges_total, 2)
+    total_discount = round(total_discount, 2)
     cgst = round(cgst, 2)
     sgst = round(sgst, 2)
     igst = round(igst, 2)
     total_tax = round(cgst + sgst + igst, 2)
-    total = round(subtotal - float(discount or 0) + total_tax, 2)
+    total = round(subtotal + charges_total - float(doc_discount or 0) + total_tax, 2)
     return {
         "items": computed_items,
+        "charges": computed_charges,
         "subtotal": subtotal,
+        "charges_total": charges_total,
+        "total_discount": total_discount,
         "cgst": cgst,
         "sgst": sgst,
         "igst": igst,
@@ -403,7 +449,8 @@ async def build_document(payload: DocumentInput, user: dict, doc_id=None, number
         customer = await db.customers.find_one({"id": payload.customer_id, "owner_id": user["id"]}, {"_id": 0, "owner_id": 0})
     cust_state = customer.get("state") if customer else ""
     items = [i.model_dump() for i in payload.items]
-    totals = compute_totals(items, comp.get("state"), cust_state, payload.discount)
+    charges = [c.model_dump() for c in payload.charges]
+    totals = compute_totals(items, comp.get("state"), cust_state, payload.discount_mode or "percent", charges, payload.discount)
     doc = {
         "id": doc_id or new_id(),
         "owner_id": user["id"],
@@ -414,8 +461,12 @@ async def build_document(payload: DocumentInput, user: dict, doc_id=None, number
         "date": payload.date or now_iso()[:10],
         "due_date": payload.due_date,
         "items": totals["items"],
+        "charges": totals["charges"],
         "discount": payload.discount,
+        "discount_mode": payload.discount_mode or "percent",
         "subtotal": totals["subtotal"],
+        "charges_total": totals["charges_total"],
+        "total_discount": totals["total_discount"],
         "cgst": totals["cgst"],
         "sgst": totals["sgst"],
         "igst": totals["igst"],
