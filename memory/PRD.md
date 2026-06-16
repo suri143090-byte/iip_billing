@@ -48,6 +48,15 @@ Professional GST billing & invoicing app for **Indian Industrial Products (IIP)*
 - RAZORPAY_KEY_ID + RAZORPAY_KEY_SECRET (Razorpay dashboard) → enables live subscription checkout
 - RESEND_API_KEY (resend.com) → enables real email sending (else mailto fallback)
 
+## Document Engine Enhancements (2026-06-09)
+- ✅ Per-item multi-line **Description** field — shown as its own column in the GST PDF
+- ✅ Per-item **Discount** with toggle: Percentage (%) or Direct Amount (₹); discount applied BEFORE GST
+- ✅ Industrial GST PDF columns: Sr / Item / Description / HSN-SAC / Qty / Rate / Discount / Taxable / GST% / CGST / SGST / IGST / Amount
+- ✅ **Additional Charges** section (Freight, Packing, Loading, Other) — each with its own GST %, taxed and added to totals
+- ✅ Applied uniformly across all 6 document types (Invoice, Quotation, Proforma, Purchase Order, Delivery Challan, Credit Note) via shared DocumentForm + InvoiceDocument
+- ✅ Auto recalculation (live summary), responsive form, PDF/Print export
+- ✅ Tested: 65/65 backend pytest pass, frontend e2e 100% (₹1062 / ₹1298 / ₹1112 verified)
+
 ## Next Tasks
 1. Add Razorpay + Resend keys to backend .env to activate payments & email.
 2. (Optional) Razorpay webhook for auto-renewal/reconciliation; recurring mandates.
