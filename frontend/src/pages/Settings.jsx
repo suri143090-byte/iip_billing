@@ -11,13 +11,26 @@ import {
 import { Save, Building2, Landmark, FileText } from "lucide-react";
 import { toast } from "sonner";
 
+const Section = ({ icon: Icon, title, children }) => (
+  <div className="bg-white rounded-xl border border-border shadow-sm p-5">
+    <div className="flex items-center gap-2 mb-4">
+      <Icon className="h-4 w-4 text-iip-blue" />
+      <h3 className="font-heading font-semibold text-[#0F172A]">{title}</h3>
+    </div>
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">{children}</div>
+  </div>
+);
+
 export default function Settings() {
   const [form, setForm] = useState(null);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => { api.get("/company").then((r) => setForm(r.data)); }, []);
 
-  const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
+  const set = (k) => (e) => {
+    const { value } = e.target;
+    setForm((prev) => ({ ...prev, [k]: value }));
+  };
 
   const save = async () => {
     setSaving(true);
@@ -33,16 +46,6 @@ export default function Settings() {
   };
 
   if (!form) return null;
-
-  const Section = ({ icon: Icon, title, children }) => (
-    <div className="bg-white rounded-xl border border-border shadow-sm p-5">
-      <div className="flex items-center gap-2 mb-4">
-        <Icon className="h-4 w-4 text-iip-blue" />
-        <h3 className="font-heading font-semibold text-[#0F172A]">{title}</h3>
-      </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">{children}</div>
-    </div>
-  );
 
   return (
     <div className="p-4 sm:p-6 md:p-8 space-y-6 max-w-4xl mx-auto">
