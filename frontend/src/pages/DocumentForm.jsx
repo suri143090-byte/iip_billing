@@ -9,7 +9,7 @@ import { Textarea } from "../components/ui/textarea";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "../components/ui/select";
-import { ArrowLeft, Plus, Trash2, Save, Percent, IndianRupee } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, Save, Percent, IndianRupee, MapPin } from "lucide-react";
 import { toast } from "sonner";
 
 const GST_RATES = [0, 5, 12, 18, 28];
@@ -95,6 +95,7 @@ export default function DocumentForm() {
     if (!selectedCustomer?.state || !company?.state) return true;
     return selectedCustomer.state.trim().toLowerCase() === company.state.trim().toLowerCase();
   }, [selectedCustomer, company]);
+  const placeOfSupply = selectedCustomer?.state || company?.state || "";
 
   const lineDiscount = (it) => {
     const base = (parseFloat(it.qty) || 0) * (parseFloat(it.rate) || 0);
@@ -182,10 +183,11 @@ export default function DocumentForm() {
     }
   };
 
-  const discLabel = doc.discount_mode === "amount" ? "Disc ₹" : "Disc %";
+  const discLabel = doc.discount_mode === "amount" ? "Disc (₹)" : "Disc (%)";
+  const th = "text-left py-2 px-2 text-[11px] uppercase tracking-wide font-semibold text-muted-foreground";
 
   return (
-    <div className="p-4 sm:p-6 md:p-8 space-y-6 max-w-5xl mx-auto">
+    <div className="p-4 sm:p-6 md:p-8 space-y-6 max-w-6xl mx-auto">
       <div className="flex items-center gap-3">
         <Button variant="ghost" size="icon" onClick={() => navigate(-1)} data-testid="back-btn"><ArrowLeft className="h-5 w-5" /></Button>
         <div>
@@ -214,37 +216,42 @@ export default function DocumentForm() {
           <Label>Due Date</Label>
           <Input type="date" data-testid="doc-due" value={doc.due_date} onChange={(e) => setDoc({ ...doc, due_date: e.target.value })} />
         </div>
-        {selectedCustomer && (
-          <div className="sm:col-span-3 text-xs text-muted-foreground bg-slate-50 rounded-lg p-3">
-            <span className="font-semibold">{selectedCustomer.name}</span>
-            {selectedCustomer.gstin && <> · GSTIN: {selectedCustomer.gstin}</>}
-            {selectedCustomer.state && <> · {selectedCustomer.state}</>}
-            <span className="ml-2 px-2 py-0.5 rounded-full bg-iip-blue/10 text-iip-blue font-semibold">{isIntra ? "CGST + SGST" : "IGST"}</span>
-          </div>
-        )}
       </div>
 
-      {/* Line items */}
+      {/* Auto-filled customer details */}
+      {selectedCustomer && (
+        <div data-testid="customer-autofill" className="bg-iip-blue/5 rounded-xl border border-iip-blue/20 p-5 grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+          <div>
+            <p className="text-[11px] uppercase tracking-wide font-semibold text-iip-blue mb-1">Billing Address</p>
+            <p className="font-semibold text-[#0F172A]">{selectedCustomer.name}</p>
+            {selectedCustomer.contact_person && <p className="text-muted-foreground">Attn: {selectedCustomer.contact_person}</p>}
+            <p className="text-muted-foreground whitespace-pre-line">{selectedCustomer.billing_address || "—"}</p>
+            {selectedCustomer.phone && <p className="text-muted-foreground">Ph: {selectedCustomer.phone}</p>}
+            {selectedCustomer.gstin && <p className="text-muted-foreground">GSTIN: {selectedCustomer.gstin}</p>}
+          </div>
+          <div>
+            <p className="text-[11px] uppercase tracking-wide font-semibold text-iip-blue mb-1">Shipping Address</p>
+            <p className="text-muted-foreground whitespace-pre-line">{selectedCustomer.shipping_address || selectedCustomer.billing_address || "—"}</p>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-white border border-border text-xs"><MapPin className="h-3 w-3 text-iip-blue" /> Place of Supply: <strong>{placeOfSupply || "—"}</strong></span>
+              <span className="px-2 py-1 rounded-full bg-iip-blue/10 text-iip-blue text-xs font-semibold">{isIntra ? "CGST + SGST" : "IGST"}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Line items - single row table */}
       <div className="bg-white rounded-xl border border-border shadow-sm p-5">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <h3 className="font-heading font-semibold text-[#0F172A]">Items</h3>
-          <div className="flex items-center gap-3">
-            {/* Discount mode toggle */}
+          <div className="flex flex-wrap items-center gap-3">
             <div className="flex items-center gap-1 bg-muted rounded-lg p-1" data-testid="discount-mode-toggle">
-              <button
-                type="button"
-                data-testid="discount-mode-percent"
-                onClick={() => setDoc({ ...doc, discount_mode: "percent" })}
-                className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-semibold transition ${doc.discount_mode === "percent" ? "bg-iip-blue text-white" : "text-muted-foreground hover:text-foreground"}`}
-              >
+              <button type="button" data-testid="discount-mode-percent" onClick={() => setDoc({ ...doc, discount_mode: "percent" })}
+                className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-semibold transition ${doc.discount_mode === "percent" ? "bg-iip-blue text-white" : "text-muted-foreground hover:text-foreground"}`}>
                 <Percent className="h-3 w-3" /> Discount
               </button>
-              <button
-                type="button"
-                data-testid="discount-mode-amount"
-                onClick={() => setDoc({ ...doc, discount_mode: "amount" })}
-                className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-semibold transition ${doc.discount_mode === "amount" ? "bg-iip-blue text-white" : "text-muted-foreground hover:text-foreground"}`}
-              >
+              <button type="button" data-testid="discount-mode-amount" onClick={() => setDoc({ ...doc, discount_mode: "amount" })}
+                className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-semibold transition ${doc.discount_mode === "amount" ? "bg-iip-blue text-white" : "text-muted-foreground hover:text-foreground"}`}>
                 <IndianRupee className="h-3 w-3" /> Amount Discount
               </button>
             </div>
@@ -252,43 +259,61 @@ export default function DocumentForm() {
           </div>
         </div>
 
-        <div className="space-y-3">
-          {doc.items.map((it, idx) => {
-            const base = (parseFloat(it.qty) || 0) * (parseFloat(it.rate) || 0);
-            const taxable = base - lineDiscount(it);
-            const amount = taxable * (1 + (parseFloat(it.gst_rate) || 0) / 100);
-            return (
-              <div key={idx} data-testid={`item-row-${idx}`} className="border border-border rounded-lg p-3 space-y-2">
-                <div className="flex items-start gap-2">
-                  <div className="flex-1 space-y-2">
-                    {products.length > 0 && (
-                      <Select value={it.product_id || ""} onValueChange={(v) => pickProduct(idx, v)}>
-                        <SelectTrigger className="h-9" data-testid={`item-product-${idx}`}><SelectValue placeholder="Pick product (optional)" /></SelectTrigger>
-                        <SelectContent>{products.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent>
+        <div className="overflow-x-auto -mx-1">
+          <table className="w-full min-w-[960px] border-collapse">
+            <thead>
+              <tr className="border-b border-border bg-slate-50">
+                <th className={`${th} w-10 text-center`}>#</th>
+                <th className={`${th} min-w-[180px]`}>Item</th>
+                <th className={`${th} min-w-[200px]`}>Description</th>
+                <th className={`${th} w-28`}>HSN/SAC</th>
+                <th className={`${th} w-20 text-right`}>Qty</th>
+                <th className={`${th} w-28 text-right`}>Rate</th>
+                <th className={`${th} w-24 text-right`}>{discLabel}</th>
+                <th className={`${th} w-24`}>GST%</th>
+                <th className={`${th} w-28 text-right`}>Amount</th>
+                <th className={`${th} w-10`}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {doc.items.map((it, idx) => {
+                const base = (parseFloat(it.qty) || 0) * (parseFloat(it.rate) || 0);
+                const taxable = base - lineDiscount(it);
+                const amount = taxable * (1 + (parseFloat(it.gst_rate) || 0) / 100);
+                return (
+                  <tr key={idx} data-testid={`item-row-${idx}`} className="border-b border-border align-top">
+                    <td className="py-2 px-2 text-center text-sm text-muted-foreground pt-4">{idx + 1}</td>
+                    <td className="py-2 px-2">
+                      {products.length > 0 && (
+                        <Select value={it.product_id || ""} onValueChange={(v) => pickProduct(idx, v)}>
+                          <SelectTrigger className="h-8 mb-1 text-xs" data-testid={`item-product-${idx}`}><SelectValue placeholder="Pick product" /></SelectTrigger>
+                          <SelectContent>{products.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent>
+                        </Select>
+                      )}
+                      <Input data-testid={`item-name-${idx}`} className="h-9" placeholder="Item name" value={it.name} onChange={(e) => updateItem(idx, "name", e.target.value)} />
+                    </td>
+                    <td className="py-2 px-2">
+                      <Textarea data-testid={`item-desc-${idx}`} className="min-h-[38px] text-sm" placeholder="Description (multi-line)" value={it.description} onChange={(e) => updateItem(idx, "description", e.target.value)} rows={2} />
+                    </td>
+                    <td className="py-2 px-2"><Input className="h-9" data-testid={`item-hsn-${idx}`} value={it.hsn} onChange={(e) => updateItem(idx, "hsn", e.target.value)} /></td>
+                    <td className="py-2 px-2"><Input className="h-9 text-right" type="number" data-testid={`item-qty-${idx}`} value={it.qty} onChange={(e) => updateItem(idx, "qty", e.target.value)} /></td>
+                    <td className="py-2 px-2"><Input className="h-9 text-right" type="number" data-testid={`item-rate-${idx}`} value={it.rate} onChange={(e) => updateItem(idx, "rate", e.target.value)} /></td>
+                    <td className="py-2 px-2"><Input className="h-9 text-right" type="number" data-testid={`item-discount-${idx}`} value={it.discount} onChange={(e) => updateItem(idx, "discount", e.target.value)} /></td>
+                    <td className="py-2 px-2">
+                      <Select value={String(it.gst_rate)} onValueChange={(v) => updateItem(idx, "gst_rate", parseFloat(v))}>
+                        <SelectTrigger className="h-9" data-testid={`item-gst-${idx}`}><SelectValue /></SelectTrigger>
+                        <SelectContent>{GST_RATES.map((g) => <SelectItem key={g} value={String(g)}>{g}%</SelectItem>)}</SelectContent>
                       </Select>
-                    )}
-                    <Input data-testid={`item-name-${idx}`} className="h-9 font-medium" placeholder="Item name" value={it.name} onChange={(e) => updateItem(idx, "name", e.target.value)} />
-                    <Textarea data-testid={`item-desc-${idx}`} className="min-h-[42px] text-sm" placeholder="Description (multi-line, optional)" value={it.description} onChange={(e) => updateItem(idx, "description", e.target.value)} rows={2} />
-                  </div>
-                  <button data-testid={`remove-item-${idx}`} onClick={() => removeItem(idx)} className="p-2 rounded hover:bg-muted text-muted-foreground hover:text-destructive mt-1"><Trash2 className="h-4 w-4" /></button>
-                </div>
-                <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
-                  <div className="space-y-1"><Label className="text-xs">HSN/SAC</Label><Input className="h-9" value={it.hsn} onChange={(e) => updateItem(idx, "hsn", e.target.value)} /></div>
-                  <div className="space-y-1"><Label className="text-xs">Qty</Label><Input className="h-9" type="number" data-testid={`item-qty-${idx}`} value={it.qty} onChange={(e) => updateItem(idx, "qty", e.target.value)} /></div>
-                  <div className="space-y-1"><Label className="text-xs">Rate</Label><Input className="h-9" type="number" data-testid={`item-rate-${idx}`} value={it.rate} onChange={(e) => updateItem(idx, "rate", e.target.value)} /></div>
-                  <div className="space-y-1"><Label className="text-xs">{discLabel}</Label><Input className="h-9" type="number" data-testid={`item-discount-${idx}`} value={it.discount} onChange={(e) => updateItem(idx, "discount", e.target.value)} /></div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">GST %</Label>
-                    <Select value={String(it.gst_rate)} onValueChange={(v) => updateItem(idx, "gst_rate", parseFloat(v))}>
-                      <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
-                      <SelectContent>{GST_RATES.map((g) => <SelectItem key={g} value={String(g)}>{g}%</SelectItem>)}</SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-1"><Label className="text-xs">Amount</Label><p className="h-9 flex items-center text-sm font-semibold">{fmtCurrency(amount)}</p></div>
-                </div>
-              </div>
-            );
-          })}
+                    </td>
+                    <td className="py-2 px-2 text-right text-sm font-semibold pt-4" data-testid={`item-amount-${idx}`}>{fmtCurrency(amount)}</td>
+                    <td className="py-2 px-2 pt-3">
+                      <button data-testid={`remove-item-${idx}`} onClick={() => removeItem(idx)} className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-destructive"><Trash2 className="h-4 w-4" /></button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       </div>
 

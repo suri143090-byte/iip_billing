@@ -1,0 +1,53 @@
+{
+  "summary": "Iteration 4 validation: added /app/backend/tests/test_iter4_features.py (14 cases) covering Customer.contact_person persistence, Document.place_of_supply (intra/inter/walk-in), the spec's ₹1062 (item) and ₹1298 (item+Freight 200@18% intra) totals, and creation of all 6 doc types with description + per-charge GST. ALL 14 PASS. Full regression: 79/79 pytest cases PASS in ~10s (54 base + 11 iter3 + 14 iter4). Frontend (Playwright on the preview URL): admin login OK; /documents/invoice/new renders a clean SINGLE-ROW table with headers # | ITEM | DESCRIPTION | HSN/SAC | QTY | RATE | DISC (%) | GST% | AMOUNT; item-name-0/item-desc-0/item-hsn-0/item-qty-0/item-rate-0/item-discount-0/item-gst-0/item-amount-0/discount-mode-percent/discount-mode-amount/save-document-btn/doc-total/charge-amount-0/charge-gst-0 testids ALL present (count=1 each); ₹1,062.00 doc-total is computed live for {qty1,rate1000,disc10%,gst18%} matching the spec; Subtotal ₹900 / Total Discount -₹100 / CGST ₹81 / SGST ₹81 visible in Summary; all 6 doc-type 'new' routes load the same form. Customers page: customer-gstin input correctly auto-detects 'Valid · Maharashtra' from GSTIN 27ABCDE1234F1Z5 and shows 'Invalid format' for '123'; customer-contact testid present.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "DocumentForm customer picker", "issue": "data-testid='customer-select' NOT FOUND on the customer combobox in /documents/{type}/new. The picker is labeled 'Select party' but exposes no testid, blocking automated tests of customer auto-fill. Spec explicitly references this testid.", "selector": "[data-testid='customer-select']", "priority": "HIGH"},
+      {"component": "DocumentForm customer-autofill panel", "issue": "data-testid='customer-autofill' panel did NOT appear after selecting a customer (count=0). Could not verify on-screen rendering of Billing Address / Shipping Address / GSTIN / Attn / Place of Supply / IGST-vs-CGST+SGST badge. Either the panel is gated on customer selection that fails because of issue #1, or the testid is missing from the rendered panel.", "selector": "[data-testid='customer-autofill']", "priority": "HIGH"}
+    ],
+    "integration_issues": [
+      {"flow": "Customer auto-fill on doc form", "issue": "Because customer-select cannot be exercised, the place-of-supply / GSTIN / Attn / IGST badge rendering in the form could not be UI-verified (backend storage IS verified — place_of_supply persists correctly via API).", "affected_selectors": ["[data-testid='customer-select']", "[data-testid='customer-autofill']"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter4_features.py",
+    "/app/backend/tests/test_charges_discount.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/iter4_results.xml",
+    "/app/test_reports/pytest/iter4_full.xml"
+  ],
+  "action_items": [
+    "Add data-testid='customer-select' to the customer combobox trigger in /app/frontend/src/pages/DocumentForm.jsx so Playwright (and the spec's check #5) can programmatically pick a saved customer.",
+    "Verify the 'customer-autofill' panel renders WITH data-testid='customer-autofill' once a customer is selected and that it shows Billing Address, Shipping Address, GSTIN, Attn (contact_person), Place of Supply, and the IGST vs CGST+SGST badge against company-state Karnataka.",
+    "(carry-over) On invoice edit/delete, recompute and roll back product stock — currently iter-3 noted this is still not applied on delete-only edit paths.",
+    "(carry-over) server.py is now 961 lines — split into routers for maintainability."
+  ],
+  "critical_code_review_comments": [
+    "Customer model correctly adds optional contact_person field; create/update/list all persist and return it (3 tests pass).",
+    "build_document correctly sets place_of_supply = customer.state OR fallback to company.state — verified via API for intra (KA), inter (MH) and walk-in.",
+    "compute_totals math for the spec sample ₹1062 (qty1*rate1000*disc10%+18%GST) and ₹1298 (above + Freight 200@18% intra) verified exact to the rupee in both backend tests and the live UI Summary.",
+    "is_intra_state correctly flips with customer state; CGST/SGST split for intra, IGST-only for inter (verified for MH 5% case).",
+    "All 6 doc types (invoice/quotation/proforma/purchase_order/delivery_challan/credit_note) accept items[].description, charges[] with per-charge gst_rate, and yield correct place_of_supply.",
+    "Frontend testids on item row 0 and charge row 0 are all present and discoverable; the new layout is genuinely a single-row table (verified in screenshot, not a card layout).",
+    "GST% selector exposes data-testid='item-gst-0' as a Radix Select (combobox) — note: it is NOT a text input, so test scripts must click + role='option' to change it. Default 18% works out of the box.",
+    "The customer picker is the only critical testid gap — without it, the spec's check (5) 'customer-autofill panel appears' cannot be programmatically verified."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter4_features.py (new, 14 test cases)"
+  ],
+  "success_rate": {
+    "backend": "100% (79/79)",
+    "frontend": "85% (single-row table + GSTIN auto-detect + per-row testids + all 6 doc-type new routes + live ₹1062 math verified; customer-select / customer-autofill panel could not be UI-exercised due to missing testid)"
+  },
+  "test_credentials": "admin@iipbilling.com / Admin@123 (premium).",
+  "seed_data_creation": "iter4 tests create TEST_iter4_KA_* and TEST_iter4_MH_* customers + documents across all 6 types under the admin account. Existing session-scoped TEST_ cleanup fixture in backend_test.py removes TEST_* customers/products at session end.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend regression: pytest /app/backend/tests/ -v runs 79 cases in ~10s. New iter-4 file: /app/backend/tests/test_iter4_features.py covers contact_person + place_of_supply + ₹1298 charges + all-6-types loop. Frontend preview URL: https://gst-invoice-hub-37.preview.emergentagent.com — admin login + invoice form was verified live (screenshot at /app/test_reports/iter4_doc_form.png shows ₹1,062 single-row + Summary). KNOWN UI GAPS for iter-4: customer-select testid not on customer picker; customer-autofill panel does not appear / has no testid. Retest after main agent adds these testids. Razorpay/Resend still intentionally unconfigured.",
+  "rca of the issue": "(1) customer-select missing testid: the file /app/frontend/src/pages/DocumentForm.jsx renders a 'Select party' combobox but the trigger element does not carry data-testid='customer-select'. Add the attribute on the SelectTrigger (or equivalent) so testing can click and pick a customer. (2) customer-autofill panel absence: either gated on (1), or the conditional render uses a different wrapper without the data-testid. Add data-testid='customer-autofill' to the wrapping <div> that shows the auto-filled Billing / Shipping / GSTIN / Attn / Place of Supply + IGST/CGST+SGST badge."
+}

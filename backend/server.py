@@ -130,6 +130,7 @@ class Customer(BaseModel):
     id: str = Field(default_factory=new_id)
     name: str
     gstin: Optional[str] = ""
+    contact_person: Optional[str] = ""
     phone: Optional[str] = ""
     email: Optional[str] = ""
     billing_address: Optional[str] = ""
@@ -448,6 +449,7 @@ async def build_document(payload: DocumentInput, user: dict, doc_id=None, number
     if payload.customer_id:
         customer = await db.customers.find_one({"id": payload.customer_id, "owner_id": user["id"]}, {"_id": 0, "owner_id": 0})
     cust_state = customer.get("state") if customer else ""
+    place_of_supply = cust_state or comp.get("state") or ""
     items = [i.model_dump() for i in payload.items]
     charges = [c.model_dump() for c in payload.charges]
     totals = compute_totals(items, comp.get("state"), cust_state, payload.discount_mode or "percent", charges, payload.discount)
@@ -458,6 +460,7 @@ async def build_document(payload: DocumentInput, user: dict, doc_id=None, number
         "type": payload.type,
         "customer_id": payload.customer_id,
         "customer": customer,
+        "place_of_supply": place_of_supply,
         "date": payload.date or now_iso()[:10],
         "due_date": payload.due_date,
         "items": totals["items"],

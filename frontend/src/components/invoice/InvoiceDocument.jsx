@@ -72,6 +72,7 @@ export default function InvoiceDocument({ doc, company, template = "classic" }) 
           <p style={{ margin: "4px 0 0", fontSize: 12 }}><strong>{doc.number}</strong></p>
           <p style={{ margin: 0, fontSize: 11, opacity: 0.85 }}>Date: {fmtDate(doc.date)}</p>
           {doc.due_date && <p style={{ margin: 0, fontSize: 11, opacity: 0.85 }}>Due: {fmtDate(doc.due_date)}</p>}
+          {doc.place_of_supply && <p style={{ margin: 0, fontSize: 11, opacity: 0.85 }}>Place of Supply: {doc.place_of_supply}</p>}
         </div>
       </div>
 
@@ -80,6 +81,7 @@ export default function InvoiceDocument({ doc, company, template = "classic" }) 
         <div style={{ padding: "14px 24px", borderRight: "1px solid #E2E8F0" }}>
           <p style={{ margin: 0, fontSize: 10, textTransform: "uppercase", letterSpacing: 1, color: "#64748B", fontWeight: 700 }}>Bill To</p>
           <p style={{ margin: "4px 0 0", fontWeight: 700 }}>{customer.name || "Walk-in Customer"}</p>
+          {customer.contact_person && <p style={{ margin: 0, fontSize: 11, color: "#475569" }}>Attn: {customer.contact_person}</p>}
           <p style={{ margin: 0, fontSize: 11, color: "#475569", whiteSpace: "pre-line" }}>{customer.billing_address}</p>
           {customer.gstin && <p style={{ margin: 0, fontSize: 11 }}>GSTIN: {customer.gstin}</p>}
           {customer.phone && <p style={{ margin: 0, fontSize: 11 }}>Ph: {customer.phone}</p>}
@@ -88,6 +90,7 @@ export default function InvoiceDocument({ doc, company, template = "classic" }) 
         <div style={{ padding: "14px 24px" }}>
           <p style={{ margin: 0, fontSize: 10, textTransform: "uppercase", letterSpacing: 1, color: "#64748B", fontWeight: 700 }}>Ship To</p>
           <p style={{ margin: "4px 0 0", fontSize: 11, color: "#475569", whiteSpace: "pre-line" }}>{customer.shipping_address || customer.billing_address || "—"}</p>
+          {doc.place_of_supply && <p style={{ margin: "8px 0 0", fontSize: 11 }}><strong>Place of Supply:</strong> {doc.place_of_supply}</p>}
         </div>
       </div>
 

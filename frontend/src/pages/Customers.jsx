@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import api, { formatApiErrorDetail } from "../lib/api";
-import { INDIAN_STATES } from "../lib/format";
+import { INDIAN_STATES, validateGstin, stateFromGstin } from "../lib/format";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
@@ -11,10 +11,10 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "../components/ui/select";
-import { Plus, Pencil, Trash2, Phone, Mail, Users, Search } from "lucide-react";
+import { Plus, Pencil, Trash2, Phone, Mail, Users, Search, CheckCircle2, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
 
-const empty = { name: "", gstin: "", phone: "", email: "", billing_address: "", shipping_address: "", state: "", type: "customer" };
+const empty = { name: "", gstin: "", contact_person: "", phone: "", email: "", billing_address: "", shipping_address: "", state: "", type: "customer" };
 
 export default function Customers() {
   const [list, setList] = useState([]);
@@ -28,11 +28,21 @@ export default function Customers() {
 
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
 
+  const onGstinChange = (e) => {
+    const gstin = e.target.value.toUpperCase();
+    const next = { ...form, gstin };
+    const detected = stateFromGstin(gstin);
+    if (detected) next.state = detected; // auto-fill state from GSTIN state code
+    setForm(next);
+  };
+  const gstinValid = form.gstin ? validateGstin(form.gstin) : null;
+
   const openNew = () => { setForm(empty); setEditing(null); setOpen(true); };
   const openEdit = (c) => { setForm({ ...empty, ...c }); setEditing(c.id); setOpen(true); };
 
   const save = async () => {
     if (!form.name.trim()) return toast.error("Name is required");
+    if (form.gstin && !validateGstin(form.gstin)) return toast.error("Invalid GSTIN format (15 chars, e.g. 29ABCDE1234F1Z5)");
     try {
       if (editing) await api.put(`/customers/${editing}`, form);
       else await api.post("/customers", form);
@@ -118,12 +128,25 @@ export default function Customers() {
               <Label>Name *</Label>
               <Input data-testid="customer-name" value={form.name} onChange={set("name")} placeholder="Customer / Company name" />
             </div>
-            <div className="space-y-1.5">
-              <Label>GSTIN</Label>
-              <Input data-testid="customer-gstin" value={form.gstin} onChange={set("gstin")} placeholder="29ABCDE1234F1Z5" />
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label className="flex items-center gap-2">
+                GSTIN
+                {gstinValid === true && (
+                  <span className="flex items-center gap-1 text-green-600 text-xs font-medium"><CheckCircle2 className="h-3.5 w-3.5" /> Valid · {stateFromGstin(form.gstin)}</span>
+                )}
+                {gstinValid === false && (
+                  <span className="flex items-center gap-1 text-destructive text-xs font-medium"><AlertCircle className="h-3.5 w-3.5" /> Invalid format</span>
+                )}
+              </Label>
+              <Input data-testid="customer-gstin" value={form.gstin} onChange={onGstinChange} maxLength={15} placeholder="29ABCDE1234F1Z5" className={gstinValid === false ? "border-destructive" : gstinValid === true ? "border-green-500" : ""} />
+              {gstinValid === true && <p className="text-xs text-muted-foreground">State auto-detected from GSTIN. CGST+SGST / IGST will be applied automatically on documents.</p>}
             </div>
             <div className="space-y-1.5">
-              <Label>Phone</Label>
+              <Label>Contact Person</Label>
+              <Input data-testid="customer-contact" value={form.contact_person} onChange={set("contact_person")} placeholder="Mr. Ramesh Kumar" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Mobile / Phone</Label>
               <Input data-testid="customer-phone" value={form.phone} onChange={set("phone")} placeholder="9876543210" />
             </div>
             <div className="space-y-1.5">
