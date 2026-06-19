@@ -201,7 +201,7 @@ export default function DocumentForm() {
         <div className="space-y-1.5 sm:col-span-1">
           <Label>{docType === "purchase_order" ? "Supplier / Party" : "Customer"}</Label>
           <Select value={doc.customer_id} onValueChange={(v) => setDoc({ ...doc, customer_id: v })}>
-            <SelectTrigger data-testid="doc-customer"><SelectValue placeholder="Select party" /></SelectTrigger>
+            <SelectTrigger data-testid="customer-select"><SelectValue placeholder="Select party" /></SelectTrigger>
             <SelectContent>
               {customers.length === 0 && <div className="px-3 py-2 text-sm text-muted-foreground">No parties — add one first</div>}
               {customers.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}

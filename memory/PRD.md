@@ -57,6 +57,17 @@ Professional GST billing & invoicing app for **Indian Industrial Products (IIP)*
 - ✅ Auto recalculation (live summary), responsive form, PDF/Print export
 - ✅ Tested: 65/65 backend pytest pass, frontend e2e 100% (₹1062 / ₹1298 / ₹1112 verified)
 
+## Reference-Layout Upgrade (2026-06-09)
+- ✅ Item entry is now a **single-row table** (# | Item | Description | HSN/SAC | Qty | Rate | Discount | GST% | Amount); horizontal scroll on mobile, table on desktop/PDF
+- ✅ Dedicated multi-line **Description** column in form + PDF/Print
+- ✅ Discount toggle (% / ₹) with live recalculation (unchanged logic, applied before GST)
+- ✅ **GSTIN auto-fill**: validates 15-char GSTIN, auto-detects state from state code, auto CGST+SGST vs IGST, saved in customer master
+- ✅ **Auto address**: selecting a customer shows auto-filled Billing/Shipping/GSTIN/Contact/Place-of-Supply + tax-type badge
+- ✅ Customer master adds **Contact Person**; document stores **place_of_supply**
+- ✅ Professional A4 PDF: logo + company details, Bill To (with Attn), Ship To + Place of Supply, item table w/ Description+Discount+GST columns, charges, Terms, Authorized Signatory, footer (phone/email/website)
+- ✅ Same structure across all 6 document types; Freight/Packing/Loading/Other charges each with own GST
+- ✅ Tested: 79/79 backend pytest pass; frontend single-row table + GSTIN auto-detect + live math verified
+
 ## Next Tasks
 1. Add Razorpay + Resend keys to backend .env to activate payments & email.
 2. (Optional) Razorpay webhook for auto-renewal/reconciliation; recurring mandates.
