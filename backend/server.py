@@ -156,6 +156,7 @@ class LineItem(BaseModel):
     name: str
     description: Optional[str] = ""
     hsn: Optional[str] = ""
+    unit: Optional[str] = "NOS"
     qty: float = 1.0
     rate: float = 0.0
     discount: float = 0.0
@@ -500,7 +501,7 @@ async def documents_create(payload: DocumentInput, user: dict = Depends(get_curr
     # Free plan: limit 10 invoices / month
     if payload.type == "invoice":
         full_user = await db.users.find_one({"id": user["id"]})
-        if full_user.get("plan", "free") == "free":
+        if full_user.get("plan", "free") == "free" and full_user.get("role") != "admin":
             month_start = datetime.now(timezone.utc).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
             cnt = await db.documents.count_documents({
                 "owner_id": user["id"], "type": "invoice",
@@ -569,7 +570,9 @@ async def documents_status(did: str, body: dict, user: dict = Depends(get_curren
 @api_router.delete("/documents/{did}")
 async def documents_delete(did: str, user: dict = Depends(get_current_user)):
     existing = await db.documents.find_one({"id": did, "owner_id": user["id"]})
-    if existing and existing.get("type") == "invoice":
+    if not existing:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if existing.get("type") == "invoice":
         for it in existing.get("items", []):
             if it.get("product_id"):
                 await db.products.update_one(
@@ -862,12 +865,18 @@ async def admin_stats(admin: dict = Depends(require_admin)):
         plan_dist[u.get("plan", "free")] = plan_dist.get(u.get("plan", "free"), 0) + 1
     total_revenue = round(sum(p.get("amount", 0) for p in payments), 2)
     total_invoices = await db.documents.count_documents({"type": "invoice"})
+    total_documents = await db.documents.count_documents({})
+    inv = await db.documents.find({"type": "invoice"}, {"_id": 0, "total": 1}).to_list(20000)
+    total_sales = round(sum(i.get("total", 0) for i in inv), 2)
     return {
         "total_users": len(users),
         "plan_distribution": plan_dist,
         "total_revenue": total_revenue,
+        "subscription_revenue": total_revenue,
         "total_payments": len(payments),
         "total_invoices": total_invoices,
+        "total_documents": total_documents,
+        "total_sales": total_sales,
         "recent_payments": payments[:10],
         "mrr": round(plan_dist.get("pro", 0) * 95 + plan_dist.get("premium", 0) * 289, 2),
     }
@@ -905,6 +914,104 @@ async def admin_delete_user(uid: str, admin: dict = Depends(require_admin)):
 @api_router.get("/admin/payments")
 async def admin_payments(admin: dict = Depends(require_admin)):
     return await db.payments.find({}, {"_id": 0}).sort("created_at", -1).to_list(2000)
+
+
+async def _user_maps():
+    users = await db.users.find({}, {"_id": 0, "password_hash": 0}).to_list(5000)
+    comps = await db.companies.find({}, {"_id": 0}).to_list(5000)
+    umap = {u["id"]: u for u in users}
+    cmap = {c.get("owner_id"): c for c in comps}
+    return umap, cmap
+
+
+@api_router.get("/admin/users/{uid}")
+async def admin_user_detail(uid: str, admin: dict = Depends(require_admin)):
+    u = await db.users.find_one({"id": uid}, {"_id": 0, "password_hash": 0})
+    if not u:
+        raise HTTPException(status_code=404, detail="User not found")
+    company = await db.companies.find_one({"owner_id": uid}, {"_id": 0})
+    counts = {
+        "invoices": await db.documents.count_documents({"owner_id": uid, "type": "invoice"}),
+        "documents": await db.documents.count_documents({"owner_id": uid}),
+        "customers": await db.customers.count_documents({"owner_id": uid}),
+        "products": await db.products.count_documents({"owner_id": uid}),
+    }
+    return {"user": u, "company": company, "counts": counts}
+
+
+@api_router.get("/admin/documents")
+async def admin_documents(
+    type: Optional[str] = None, user_id: Optional[str] = None, q: Optional[str] = None,
+    date_from: Optional[str] = None, date_to: Optional[str] = None,
+    admin: dict = Depends(require_admin),
+):
+    query = {}
+    if type:
+        query["type"] = type
+    if user_id:
+        query["owner_id"] = user_id
+    if date_from or date_to:
+        dq = {}
+        if date_from:
+            dq["$gte"] = date_from
+        if date_to:
+            dq["$lte"] = date_to
+        query["date"] = dq
+    docs = await db.documents.find(query, {"_id": 0}).sort("updated_at", -1).to_list(4000)
+    umap, cmap = await _user_maps()
+    out = []
+    ql = (q or "").strip().lower()
+    for d in docs:
+        u = umap.get(d.get("owner_id"), {})
+        comp = cmap.get(d.get("owner_id"), {})
+        cust = d.get("customer") or {}
+        if ql:
+            hay = " ".join([
+                d.get("number", ""), cust.get("name", ""), cust.get("gstin", ""),
+                u.get("name", ""), u.get("email", ""), comp.get("name", ""), comp.get("gstin", ""),
+            ]).lower()
+            if ql not in hay:
+                continue
+        d2 = dict(d)
+        d2["owner_name"] = u.get("name")
+        d2["owner_email"] = u.get("email")
+        d2["company_name"] = comp.get("name")
+        d2["company_gstin"] = comp.get("gstin")
+        out.append(d2)
+    return out
+
+
+@api_router.get("/admin/documents/{did}")
+async def admin_document_detail(did: str, admin: dict = Depends(require_admin)):
+    doc = await db.documents.find_one({"id": did}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    owner_id = doc.get("owner_id")
+    company = await db.companies.find_one({"owner_id": owner_id}, {"_id": 0})
+    owner = await db.users.find_one({"id": owner_id}, {"_id": 0, "password_hash": 0})
+    return {"document": doc, "company": company or {}, "owner": owner or {}}
+
+
+@api_router.get("/admin/products")
+async def admin_products(user_id: Optional[str] = None, admin: dict = Depends(require_admin)):
+    query = {"owner_id": user_id} if user_id else {}
+    products = await db.products.find(query, {"_id": 0}).to_list(5000)
+    umap, cmap = await _user_maps()
+    for p in products:
+        comp = cmap.get(p.get("owner_id"), {})
+        p["company_name"] = comp.get("name")
+    return products
+
+
+@api_router.get("/admin/customers")
+async def admin_customers(user_id: Optional[str] = None, admin: dict = Depends(require_admin)):
+    query = {"owner_id": user_id} if user_id else {}
+    custs = await db.customers.find(query, {"_id": 0}).to_list(5000)
+    umap, cmap = await _user_maps()
+    for c in custs:
+        comp = cmap.get(c.get("owner_id"), {})
+        c["company_name"] = comp.get("name")
+    return custs
 
 
 # ----------------------------------------------------------------------------

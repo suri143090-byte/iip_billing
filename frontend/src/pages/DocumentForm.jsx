@@ -11,6 +11,7 @@ import {
 } from "../components/ui/select";
 import { ArrowLeft, Plus, Trash2, Save, Percent, IndianRupee, MapPin } from "lucide-react";
 import { toast } from "sonner";
+import { UnitCombobox } from "../components/UnitCombobox";
 
 const GST_RATES = [0, 5, 12, 18, 28];
 const DOC_LABEL = {
@@ -18,7 +19,7 @@ const DOC_LABEL = {
   purchase_order: "Purchase Order", delivery_challan: "Delivery Challan", credit_note: "Credit Note",
 };
 
-const emptyItem = () => ({ product_id: null, name: "", description: "", hsn: "", qty: 1, rate: 0, discount: 0, gst_rate: 18 });
+const emptyItem = () => ({ product_id: null, name: "", description: "", hsn: "", unit: "NOS", qty: 1, rate: 0, discount: 0, gst_rate: 18 });
 const defaultCharges = () => [
   { label: "Freight Charges", amount: 0, gst_rate: 18 },
   { label: "Packing Charges", amount: 0, gst_rate: 18 },
@@ -75,7 +76,7 @@ export default function DocumentForm() {
           date: data.date,
           due_date: data.due_date || "",
           items: data.items.length
-            ? data.items.map((i) => ({ product_id: i.product_id, name: i.name, description: i.description || "", hsn: i.hsn, qty: i.qty, rate: i.rate, discount: i.discount || 0, gst_rate: i.gst_rate }))
+            ? data.items.map((i) => ({ product_id: i.product_id, name: i.name, description: i.description || "", hsn: i.hsn, unit: i.unit || "NOS", qty: i.qty, rate: i.rate, discount: i.discount || 0, gst_rate: i.gst_rate }))
             : [emptyItem()],
           discount_mode: data.discount_mode || "percent",
           charges: buildCharges(data.charges),
@@ -141,7 +142,7 @@ export default function DocumentForm() {
     const p = products.find((x) => x.id === productId);
     setDoc((d) => {
       const items = [...d.items];
-      if (p) items[idx] = { ...items[idx], product_id: p.id, name: p.name, description: p.description || items[idx].description, hsn: p.hsn, rate: p.price, gst_rate: p.gst_rate };
+      if (p) items[idx] = { ...items[idx], product_id: p.id, name: p.name, description: p.description || items[idx].description, hsn: p.hsn, unit: p.unit || items[idx].unit, rate: p.price, gst_rate: p.gst_rate };
       return { ...d, items };
     });
   };
@@ -165,7 +166,7 @@ export default function DocumentForm() {
       customer_id: doc.customer_id || null,
       amount_paid: parseFloat(doc.amount_paid) || 0,
       items: doc.items.filter((i) => i.name.trim()).map((i) => ({
-        product_id: i.product_id || null, name: i.name, description: i.description || "", hsn: i.hsn || "",
+        product_id: i.product_id || null, name: i.name, description: i.description || "", hsn: i.hsn || "", unit: i.unit || "NOS",
         qty: parseFloat(i.qty) || 0, rate: parseFloat(i.rate) || 0, discount: parseFloat(i.discount) || 0, gst_rate: parseFloat(i.gst_rate) || 0,
       })),
       charges: doc.charges.filter((c) => (parseFloat(c.amount) || 0) > 0).map((c) => ({
@@ -260,15 +261,16 @@ export default function DocumentForm() {
         </div>
 
         <div className="overflow-x-auto -mx-1">
-          <table className="w-full min-w-[960px] border-collapse">
+          <table className="w-full min-w-[1040px] border-collapse">
             <thead>
               <tr className="border-b border-border bg-slate-50">
                 <th className={`${th} w-10 text-center`}>#</th>
                 <th className={`${th} min-w-[180px]`}>Item</th>
-                <th className={`${th} min-w-[200px]`}>Description</th>
-                <th className={`${th} w-28`}>HSN/SAC</th>
+                <th className={`${th} min-w-[190px]`}>Description</th>
+                <th className={`${th} w-24`}>HSN/SAC</th>
                 <th className={`${th} w-20 text-right`}>Qty</th>
-                <th className={`${th} w-28 text-right`}>Rate</th>
+                <th className={`${th} w-24`}>Unit</th>
+                <th className={`${th} w-24 text-right`}>Rate</th>
                 <th className={`${th} w-24 text-right`}>{discLabel}</th>
                 <th className={`${th} w-24`}>GST%</th>
                 <th className={`${th} w-28 text-right`}>Amount</th>
@@ -297,6 +299,7 @@ export default function DocumentForm() {
                     </td>
                     <td className="py-2 px-2"><Input className="h-9" data-testid={`item-hsn-${idx}`} value={it.hsn} onChange={(e) => updateItem(idx, "hsn", e.target.value)} /></td>
                     <td className="py-2 px-2"><Input className="h-9 text-right" type="number" data-testid={`item-qty-${idx}`} value={it.qty} onChange={(e) => updateItem(idx, "qty", e.target.value)} /></td>
+                    <td className="py-2 px-2"><UnitCombobox value={it.unit} onChange={(v) => updateItem(idx, "unit", v)} testid={`item-unit-${idx}`} className="h-9" /></td>
                     <td className="py-2 px-2"><Input className="h-9 text-right" type="number" data-testid={`item-rate-${idx}`} value={it.rate} onChange={(e) => updateItem(idx, "rate", e.target.value)} /></td>
                     <td className="py-2 px-2"><Input className="h-9 text-right" type="number" data-testid={`item-discount-${idx}`} value={it.discount} onChange={(e) => updateItem(idx, "discount", e.target.value)} /></td>
                     <td className="py-2 px-2">

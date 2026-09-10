@@ -68,6 +68,14 @@ Professional GST billing & invoicing app for **Indian Industrial Products (IIP)*
 - ✅ Same structure across all 6 document types; Freight/Packing/Loading/Other charges each with own GST
 - ✅ Tested: 79/79 backend pytest pass; frontend single-row table + GSTIN auto-detect + live math verified
 
+## Admin Panel + RBAC & Smart Units (2026-06-09)
+- ✅ **Backend RBAC**: all user data endpoints owner-scoped; cross-user access returns 404; every `/api/admin/*` route guarded by `require_admin` (403 for non-admins). Verified: User A cannot read/update/delete User B docs.
+- ✅ **Admin Panel** (`/admin`): 5 KPIs (Total Users, Total Documents, Sales Value, Subscription Revenue, MRR); Documents tab across ALL users with filters (type, user, search by number/company/GSTIN/customer/email, date range) + view modal with **PDF download/print** for any user's doc; Users tab (plan change, delete non-admins, profile+company+counts modal); Products & Customers cross-company views; Payments; Analytics pie.
+- ✅ New admin APIs: `/admin/users/{id}`, `/admin/documents` (filters), `/admin/documents/{id}`, `/admin/products`, `/admin/customers`; enhanced `/admin/stats`.
+- ✅ **Smart Unit selector** (UnitCombobox): prefix search, first-match highlight, Enter/Arrow keys, max 5, common-first — used in Product Master + every document line item (new Unit column; unit shown in PDF Qty cell).
+- ✅ Hardening: admin bypasses free-plan invoice limit; delete returns 404 when not owned/found.
+- ✅ Tested: 97/97 backend pytest pass; admin UI + unit search verified via Playwright.
+
 ## Next Tasks
 1. Add Razorpay + Resend keys to backend .env to activate payments & email.
 2. (Optional) Razorpay webhook for auto-renewal/reconciliation; recurring mandates.

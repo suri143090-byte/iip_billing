@@ -13,9 +13,9 @@ import {
 } from "../components/ui/select";
 import { Plus, Pencil, Trash2, Package, Search } from "lucide-react";
 import { toast } from "sonner";
+import { UnitCombobox } from "../components/UnitCombobox";
 
-const empty = { name: "", hsn: "", description: "", unit: "Nos", price: 0, gst_rate: 18, stock: 0, low_stock_threshold: 5 };
-const UNITS = ["Nos", "Kg", "Gram", "Litre", "Meter", "Box", "Pack", "Set", "Pair", "Dozen", "Roll"];
+const empty = { name: "", hsn: "", description: "", unit: "NOS", price: 0, gst_rate: 18, stock: 0, low_stock_threshold: 5 };
 const GST_RATES = [0, 5, 12, 18, 28];
 
 export default function Products() {
@@ -131,10 +131,7 @@ export default function Products() {
             </div>
             <div className="space-y-1.5">
               <Label>Unit</Label>
-              <Select value={form.unit} onValueChange={(v) => setForm({ ...form, unit: v })}>
-                <SelectTrigger data-testid="product-unit"><SelectValue /></SelectTrigger>
-                <SelectContent>{UNITS.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}</SelectContent>
-              </Select>
+              <UnitCombobox value={form.unit} onChange={(v) => setForm({ ...form, unit: v })} testid="product-unit" className="h-9" />
             </div>
             <div className="space-y-1.5">
               <Label>Price (₹)</Label>
