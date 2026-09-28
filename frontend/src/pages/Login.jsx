@@ -126,9 +126,6 @@ export default function Login() {
               Create an account
             </Link>
           </p>
-          <div className="mt-6 rounded-lg bg-muted p-3 text-xs text-muted-foreground">
-            <span className="font-semibold">Demo admin:</span> admin@iipbilling.com / Admin@123
-          </div>
         </div>
       </div>
     </div>
